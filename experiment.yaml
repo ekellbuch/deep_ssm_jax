@@ -1,18 +1,23 @@
-seed: 0 # seed
+jax_seed: 0 # seed
 num_epochs: 100 # number of training epochs
 num_iters: 5  # number of deer iterations
 method: 'seq'  # 'deer' ,'seq'
-batch_size: 16  # batch size
 learning_rate: 0.001  # learning rate
 hidden_size: 16  # hidden size
-val_split: 0.1  # validation split
 
 debug: true # debug mode
 
 use_wandb: false  # use wandb for logging
 wandb_project: "gru_seq_mnist"  # wandb project name"
 
-early_stopping: false  # early stopping
+early_stopping: true  # early stopping
 early_stopping_metric: "val_loss"  # early stopping metric
 early_stopping_patience: 5  # early stopping patience
-early_stopping_min_delta: 1e-4  # early stopping min delta
+early_stopping_min_delta: 0.0001  # early stopping min delta
+
+
+dataset: "mnist-classification"
+dir_name: "."
+batch_size: 16  # batch size
+
+

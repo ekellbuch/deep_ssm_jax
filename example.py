@@ -37,7 +37,9 @@ import wandb
 import argparse
 import yaml
 from omegaconf import OmegaConf
+from jax import random
 
+from src.s5.dataloading import Datasets
 
 def elk_alg(
     f,
@@ -240,11 +242,9 @@ def evaluate_model(model, eval_ds):
     total_accuracy = 0.0
 
     for batch in tqdm(eval_ds):
-        x, y = batch
+        x, y, _ = batch
         x, y = jnp.array(x), jnp.array(y)
 
-        # Compute predictions and loss
-        #loss, grads = compute_loss(model, x, y)
         # Compute predictions and loss
         loss, accuracy = compute_accuracy_and_loss(model, x, y)
 
@@ -273,8 +273,51 @@ def train_step(model, optimizer, opt_state, x, y):
   model = eqx.apply_updates(model, updates)
   return loss_value, model, opt_state
 
+
+def create_dataset(args):
+    # Set randomness...
+    print("[*] Setting Randomness...")
+    key = random.PRNGKey(args.jax_seed)
+    init_rng, train_rng = random.split(key, num=2)
+
+    # Get dataset creation function
+    create_dataset_fn = Datasets[args.dataset]
+
+    # Dataset dependent logic
+    if args.dataset in ["imdb-classification", "listops-classification", "aan-classification"]:
+        padded = True
+        if args.dataset in ["aan-classification"]:
+            # Use retreival model for document matching
+            retrieval = True
+            print("Using retrieval model for document matching")
+        else:
+            retrieval = False
+
+    else:
+        padded = False
+        retrieval = False
+
+    # For speech dataset
+    if args.dataset in ["speech35-classification"]:
+        speech = True
+        print("Will evaluate on both resolutions for speech task")
+    else:
+        speech = False
+
+    # Create dataset...
+    init_rng, key = random.split(init_rng, num=2)
+    trainloader, valloader, testloader, aux_dataloaders, n_classes, seq_len, in_dim, train_size = \
+      create_dataset_fn(args.dir_name, seed=args.jax_seed, bsz=args.batch_size)
+
+    print(f"[*] Starting S5 Training on `{args.dataset}` =>> Initializing...")
+    return trainloader, valloader, testloader, aux_dataloaders
+
+
 # Update the call to train_step in train_model
-def train_model(model, optimizer, opt_state, train_ds, val_ds, num_epochs, debug, early_stopping, early_stopping_metric="val_loss", patience=5, min_delta=1e-4):
+def train_model(model, optimizer, opt_state,
+                train_ds, val_ds, test_ds,
+                num_epochs, debug,
+                early_stopping, early_stopping_metric="val_loss", patience=5, min_delta=1e-4):
 
     best_metric = float("inf") if early_stopping_metric == "val_loss" else float("-inf")
     no_improvement_epochs = 0
@@ -283,16 +326,18 @@ def train_model(model, optimizer, opt_state, train_ds, val_ds, num_epochs, debug
         num_epochs = [0]
         all_batches = [next(iter(train_ds))]
         all_val_batches = [next(iter(val_ds))]
+        all_test_batches = [next(iter(test_ds))]
+
     else:
         num_epochs = range(num_epochs)
         all_batches = train_ds
-        #all_val_batches = val_ds
-        all_val_batches = [next(iter(val_ds))]
+        all_val_batches = val_ds
+        all_test_batches = test_ds
 
-    for epoch in tqdm(num_epochs, desc="Training epochs"):
+    for epoch in tqdm(num_epochs):
         # Training loop
         for batch in all_batches:
-            x, y = batch
+            x, y, _ = batch
             x, y = jnp.array(x), jnp.array(y)
             loss_value, model, opt_state = train_step(model, optimizer, opt_state, x, y)  # Pass model explicitly
 
@@ -303,7 +348,6 @@ def train_model(model, optimizer, opt_state, train_ds, val_ds, num_epochs, debug
             wandb.log(metrics)
 
         # Evaluate after each epoch
-        # print(f"Epoch {epoch + 1} / {num_epochs}")
         val_loss, val_accuracy = evaluate_model(model, all_val_batches)
 
         metrics = {"val/val_loss": val_loss,
@@ -312,7 +356,6 @@ def train_model(model, optimizer, opt_state, train_ds, val_ds, num_epochs, debug
 
         if wandb.run is not None:
             wandb.log(metrics)
-
 
         # Early stopping logic
         if early_stopping:
@@ -328,17 +371,18 @@ def train_model(model, optimizer, opt_state, train_ds, val_ds, num_epochs, debug
                 print(f"Early stopping triggered at epoch {epoch + 1}")
                 break
 
-
+    # TODO: update to best epoch
     # Log full test
-    val_loss, val_accuracy = evaluate_model(model, val_ds)
+    print(f"[*] Evaluating on test set...")
+    test_loss, test_accuracy = evaluate_model(model, all_test_batches)
 
-    metrics = {"test/test_loss": val_loss,
+    metrics = {"test/test_loss": test_loss,
                 "test/epoch": epoch,
-                "test/accuracy": val_accuracy}
+                "test/accuracy": test_accuracy}
 
     if wandb.run is not None:
         wandb.log(metrics)
-    return model, opt_state, val_loss, val_accuracy
+    return model, opt_state, test_loss, test_accuracy
 
 
 """## Train model"""
@@ -348,8 +392,6 @@ def main(args):
     # TODO: seed everything equivalent in jax
     input_size = 1
     hidden_size = args.hidden_size # 256
-    num_epochs = args.num_epochs # 100
-    batch_size = args.batch_size # 256
     learning_rate = args.learning_rate
     num_iters = args.num_iters
     method = args.method
@@ -366,8 +408,9 @@ def main(args):
         wandb.init(project=wandb_project, config=dict(args))
 
     # Load datasets
-    train_ds = load_sequential_mnist("train", batch_size)
-    val_ds = load_sequential_mnist("test", batch_size)
+    # train_ds = load_sequential_mnist("train", arg.batch_size)
+    # val_ds = load_sequential_mnist("test", args.batch_size)
+    trainloader, valloader, testloader, aux_dataloaders = create_dataset(args)
 
     # Initialize and train the model:
     model = GRUModel(jr.PRNGKey(0), input_size, hidden_size, num_iters, method)
@@ -375,7 +418,10 @@ def main(args):
     opt_state = optim.init(eqx.filter(model, eqx.is_array))
 
     # train and eval model
-    model, opt_state, val_loss, val_accuracy = train_model(model, optim, opt_state, train_ds, val_ds, num_epochs, debug, early_stopping, early_stopping_metric, patience, min_delta)
+    _ = train_model(model, optim, opt_state,
+                trainloader, valloader, testloader,
+                args.num_epochs, debug,
+                early_stopping, early_stopping_metric, patience, min_delta)
 
     if args.use_wandb:
         wandb.finish()
