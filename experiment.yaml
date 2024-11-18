@@ -17,7 +17,7 @@ early_stopping_min_delta: 0.0001  # early stopping min delta
 
 
 dataset: "mnist-classification"
-dir_name: "."
+dir_name: "data"
 batch_size: 16  # batch size
 
 
