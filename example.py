@@ -213,17 +213,13 @@ class GRUModel(eqx.Module):
         return output
 
 # Define loss function (cross-entropy for classification)
+@eqx.filter_jit
 @eqx.filter_value_and_grad
 def compute_loss(model, x, y):
     logits = jax.vmap(model)(x) # vmap to act on a batch dimension
     one_hot_labels = jax.nn.one_hot(y, logits.shape[-1])
     loss = optax.softmax_cross_entropy(logits, one_hot_labels).mean()
     return loss
-
-# Define accuracy function
-def compute_accuracy(logits, labels):
-    predictions = jnp.argmax(logits, axis=-1)
-    return jnp.mean(predictions == labels)
 
 
 def compute_accuracy_and_loss(model, x, y):
@@ -232,6 +228,11 @@ def compute_accuracy_and_loss(model, x, y):
     loss = optax.softmax_cross_entropy(logits, one_hot_labels).mean()
     accuracy = compute_accuracy(logits, y)
     return loss, accuracy
+
+# Define accuracy function
+def compute_accuracy(logits, labels):
+    predictions = jnp.argmax(logits, axis=-1)
+    return jnp.mean(predictions == labels)
 
 
 # Evaluation function
@@ -255,8 +256,7 @@ def evaluate_model(model, eval_ds):
 
     avg_loss = total_loss / num_batches
     avg_accuracy = total_accuracy / num_batches
-    #print(f"Evaluation - Loss: {avg_loss} Acc: {avg_accuracy}")
-    return avg_loss, avg_accuracy
+    return avg_accuracy, avg_loss
 
 @eqx.filter_jit
 def train_step(model, optimizer, opt_state, x, y):
@@ -334,27 +334,35 @@ def train_model(model, optimizer, opt_state,
         all_val_batches = val_ds
         all_test_batches = test_ds
 
-    for epoch in tqdm(num_epochs):
+    total_loss = 0.0
+    total_acc = 0.0
+    num_batches = 0
+
+    for epoch in tqdm(num_epochs, desc="Training epoch"):
         # Training loop
         for batch in all_batches:
             x, y, _ = batch
             x, y = jnp.array(x), jnp.array(y)
             loss_value, model, opt_state = train_step(model, optimizer, opt_state, x, y)  # Pass model explicitly
 
-        metrics = {"train/train_loss": loss_value,
-                   "train/epoch": epoch}
+            total_loss += loss_value
+            num_batches += 1
+
+        # Log training metrics
+        avg_loss = total_loss / num_batches
 
         if wandb.run is not None:
+            metrics = {"train/train_loss": avg_loss,
+                       "train/epoch": epoch}
             wandb.log(metrics)
 
         # Evaluate after each epoch
-        val_loss, val_accuracy = evaluate_model(model, all_val_batches)
-
-        metrics = {"val/val_loss": val_loss,
-                   "val/epoch": epoch,
-                   "val/accuracy": val_accuracy}
+        val_accuracy, val_loss  = evaluate_model(model, all_val_batches)
 
         if wandb.run is not None:
+            metrics = {"val/val_loss": val_loss,
+                       "val/epoch": epoch,
+                       "val/accuracy": val_accuracy}
             wandb.log(metrics)
 
         # Early stopping logic
@@ -374,13 +382,12 @@ def train_model(model, optimizer, opt_state,
     # TODO: update to best epoch
     # Log full test
     print(f"[*] Evaluating on test set...")
-    test_loss, test_accuracy = evaluate_model(model, all_test_batches)
-
-    metrics = {"test/test_loss": test_loss,
-                "test/epoch": epoch,
-                "test/accuracy": test_accuracy}
+    test_accuracy, test_loss = evaluate_model(model, all_test_batches)
 
     if wandb.run is not None:
+        metrics = {"test/test_loss": test_loss,
+                   "test/epoch": epoch,
+                   "test/accuracy": test_accuracy}
         wandb.log(metrics)
     return model, opt_state, test_loss, test_accuracy
 
