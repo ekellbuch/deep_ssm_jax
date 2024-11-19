@@ -1,14 +1,15 @@
+# default params from: https://arxiv.org/pdf/1710.02224
 jax_seed: 0 # seed
 num_epochs: 100 # number of training epochs
 num_iters: 1  # number of deer iterations
-method: 'deer'  # 'deer' ,'seq'
+method: 'seq'  # 'deer' ,'seq'
 learning_rate: 0.001  # learning rate
-hidden_size: 16  # hidden size
+hidden_size: 256  # hidden size
 
-debug: true # debug mode
+debug: false # debug mode
 
-use_wandb: false  # use wandb for logging
-wandb_project: "gru_seq_mnist"  # wandb project name"
+use_wandb: true  # use wandb for logging
+wandb_project: "deer_gru_mnist"  # wandb project name"
 
 early_stopping: true  # early stopping
 early_stopping_metric: "val_loss"  # early stopping metric

@@ -279,8 +279,11 @@ def compute_accuracy(logits, labels):
 
 
 # Evaluation function
-@eqx.filter_jit
+#@eqx.filter_jit
 def evaluate_model(model, eval_ds):
+  # we could pre-compile evaluate model to avoid repeated compilation
+  # but we do not jit compile inside loops
+  # so we include jit in compute_metrics
   total_loss = 0.0
   num_batches = 0
   total_accuracy = 0.0
@@ -294,8 +297,6 @@ def evaluate_model(model, eval_ds):
 
     # Compute predictions and loss
     loss, accuracy = compute_metrics(model, x, y)
-    # pre-compile evaluate model to avoid repeated compilation
-    # do not jit compile inside loops
     #logits = jax.vmap(model)(x)  # vmap to act on a batch dimension
     #one_hot_labels = jax.nn.one_hot(y, logits.shape[-1])
     #loss = optax.softmax_cross_entropy(logits, one_hot_labels).mean()
@@ -306,7 +307,6 @@ def evaluate_model(model, eval_ds):
     total_accuracy += accuracy
     num_batches += 1
 
-  breakpoint()
   avg_loss = total_loss / num_batches
   avg_accuracy = total_accuracy / num_batches
   return avg_accuracy, avg_loss
@@ -414,7 +414,6 @@ def train_model(model, optimizer, opt_state,
 
     # Evaluate after each epoch
     val_accuracy, val_loss = evaluate_model(model, all_val_batches)
-    breakpoint()
     jax.block_until_ready(val_accuracy)
     jax.block_until_ready(val_loss)
 
