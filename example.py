@@ -19,6 +19,8 @@ python example.py -b experiment.yaml
 # flags to avoid redundant init
 
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
+export TF_FORCE_GPU_ALLOW_GROWTH=true
+
 """
 
 # ! pip install equinox
@@ -171,23 +173,23 @@ def load_sequential_mnist_v2(split, batch_size, validation_split=0.1):
     val_ds = ds.skip(train_size)
 
     # Process the training dataset
-    train_ds = train_ds.shuffle(1024).map(lambda x, y: (tf.reshape(x, [28 * 28]), y))
-    train_ds = train_ds.map(lambda x, y: (tf.transpose(tf.expand_dims(x, axis=0)), y))
-    train_ds = train_ds.batch(batch_size).prefetch(10)
+    train_ds = train_ds.shuffle(1024).map(process_fn)
+    train_ds = train_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
     # Process the validation dataset
-    val_ds = val_ds.map(lambda x, y: (tf.reshape(x, [28 * 28]), y))
-    val_ds = val_ds.map(lambda x, y: (tf.transpose(tf.expand_dims(x, axis=0)), y))
-    val_ds = val_ds.batch(batch_size).prefetch(10)
-
+    val_ds = val_ds.map(process_fn)
+    val_ds = val_ds.batch(batch_size, drop_remainder=True).prefetch(tf.data.AUTOTUNE)
     return tfds.as_numpy(train_ds), tfds.as_numpy(val_ds)
 
   else:
     # For test dataset, process normally
-    ds = ds.map(lambda x, y: (tf.reshape(x, [28 * 28]), y))
-    ds = ds.map(lambda x, y: (tf.transpose(tf.expand_dims(x, axis=0)), y))
-    ds = ds.batch(batch_size).prefetch(10)
+    total_size = tf.data.experimental.cardinality(ds).numpy()
+    ds = ds.map(process_fn)
+    ds = ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
     return tfds.as_numpy(ds)
+
+def process_fn(x, y):
+    return (tf.transpose(tf.expand_dims(tf.reshape(x, [28 * 28]), axis=0)), y)
 
 
 class GRUModel(eqx.Module):
@@ -261,8 +263,8 @@ def compute_loss(model, x, y):
   loss = optax.softmax_cross_entropy(logits, one_hot_labels).mean()
   return loss
 
-
-def compute_accuracy_and_loss(model, x, y):
+@eqx.filter_jit
+def compute_metrics(model, x, y):
   logits = jax.vmap(model)(x)  # vmap to act on a batch dimension
   one_hot_labels = jax.nn.one_hot(y, logits.shape[-1])
   loss = optax.softmax_cross_entropy(logits, one_hot_labels).mean()
@@ -291,13 +293,20 @@ def evaluate_model(model, eval_ds):
     x, y = jnp.array(x), jnp.array(y)
 
     # Compute predictions and loss
-    loss, accuracy = compute_accuracy_and_loss(model, x, y)
+    loss, accuracy = compute_metrics(model, x, y)
+    # pre-compile evaluate model to avoid repeated compilation
+    # do not jit compile inside loops
+    #logits = jax.vmap(model)(x)  # vmap to act on a batch dimension
+    #one_hot_labels = jax.nn.one_hot(y, logits.shape[-1])
+    #loss = optax.softmax_cross_entropy(logits, one_hot_labels).mean()
+    #accuracy = compute_accuracy(logits, y)
 
     # Accumulate metrics
     total_loss += loss
     total_accuracy += accuracy
     num_batches += 1
 
+  breakpoint()
   avg_loss = total_loss / num_batches
   avg_accuracy = total_accuracy / num_batches
   return avg_accuracy, avg_loss
@@ -405,6 +414,9 @@ def train_model(model, optimizer, opt_state,
 
     # Evaluate after each epoch
     val_accuracy, val_loss = evaluate_model(model, all_val_batches)
+    breakpoint()
+    jax.block_until_ready(val_accuracy)
+    jax.block_until_ready(val_loss)
 
     if wandb.run is not None:
       metrics = {"val/val_loss": val_loss,
@@ -425,6 +437,8 @@ def train_model(model, optimizer, opt_state,
       if no_improvement_epochs >= patience:
         print(f"Early stopping triggered at epoch {epoch + 1}")
         break
+    
+    del val_accuracy, val_loss  # Free memory after logging
 
   # TODO: update to best epoch
   # Log full test
