@@ -154,7 +154,7 @@ def deer_alg(
     return new_states, None
 
   final_state, _ = scan(_step, states_guess, None, length=num_iters)
-  return final_state[-1]
+  return final_state
 
 
 # Load MNIST and flatten for Sequential MNIST task with tfds.as_numpy
@@ -284,7 +284,7 @@ class GRUModel(eqx.Module):
         lambda *a: self.single_step(*a), hidden_init, inputs
       )
     elif 'deer' in self.method:
-      final_hidden = deer_alg(
+      hidden_states = deer_alg(
         f=lambda state, input: self.single_step(state, input)[0],
         initial_state=hidden_init,
         states_guess=jnp.zeros((T, self.hidden_size)),  # TODO: we will want to warm start
@@ -293,6 +293,7 @@ class GRUModel(eqx.Module):
         quasi='quasi'in self.method,
         diagonal_func=self.cell.diagonal_derivative if hasattr(self.cell, 'diagonal_derivative') else None,
       )
+      final_hidden = hidden_states[-1]
     output = self.out(final_hidden)
     return output
 
