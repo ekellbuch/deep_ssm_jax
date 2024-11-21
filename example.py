@@ -48,6 +48,9 @@ from jax import random
 from src.s5.dataloading import Datasets
 
 
+def identity_diag(prev_state, input):
+  return jnp.ones_like(prev_state)
+
 def deer_alg(
   f,
   initial_state,
@@ -292,6 +295,7 @@ class GRUModel(eqx.Module):
         num_iters=self.num_iters,
         quasi='quasi'in self.method,
         diagonal_func=self.cell.diagonal_derivative if hasattr(self.cell, 'diagonal_derivative') else None,
+        #diagonal_func=identity_diag,
       )
       final_hidden = hidden_states[-1]
     output = self.out(final_hidden)
