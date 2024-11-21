@@ -367,7 +367,7 @@ def train_step(model, optimizer, opt_state, x, y):
       y: label
     """
   loss_value, grads = compute_loss(model, x, y)
-  updates, opt_state = optimizer.update(grads, opt_state)
+  updates, opt_state = optimizer.update(grads, opt_state, model)
   model = eqx.apply_updates(model, updates)
   return loss_value, model, opt_state
 
@@ -531,7 +531,7 @@ def main(args):
 
   # Initialize and train the model:
   model = GRUModel(jr.PRNGKey(0), input_size, hidden_size, num_iters, method)
-  optim = optax.adam(learning_rate)
+  optim = optax.adamw(learning_rate, b1=0.9, b2=0.999, weight_decay=0.)
   opt_state = optim.init(eqx.filter(model, eqx.is_array))
 
   # train and eval model
