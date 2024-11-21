@@ -28,13 +28,13 @@ export TF_FORCE_GPU_ALLOW_GROWTH=true
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+from jaxtyping import Array, Float
 import optax
 import tensorflow as tf
 import tensorflow_datasets as tfds
 from functools import partial
 import numpy as np
 import equinox as eqx
-import pdb
 from tqdm import tqdm
 
 from jax import vmap
@@ -55,6 +55,7 @@ def elk_alg(
   drivers,
   num_iters=10,  # controls number of iteration
   quasi=False,
+  diagonal_func=None,
 ):
   """
     Currently is DEER
@@ -110,22 +111,28 @@ def elk_alg(
     A_j, b_j = q_j
     return A_j * A_i, A_j * b_i + b_j
 
-  @jax.jit
   def _step(states, args):
     # Evaluate f and its Jacobian in parallel across timesteps 1,..,T-1
     fs = vmap(f)(states[:-1], drivers[1:])  # get the next
-    # pdb.set_trace()
-    # Jfs are the Jacobians (what is going with the tuples rn)
-    Jfs = vmap(jax.jacrev(f, argnums=0))(
-      states[:-1], drivers[1:]
-    )
+
 
     # Compute the As and bs from fs and Jfs
     if quasi:
-      As = vmap(lambda Jf: jnp.diag(Jf))(Jfs)
+      if diagonal_func:
+        As = vmap(diagonal_func)(states[:-1], drivers[1:])
+      else:
+        # Jfs are the Jacobians (what is going with the tuples rn)
+        Jfs = vmap(jax.jacrev(f, argnums=0))(
+          states[:-1], drivers[1:]
+        )
+        As = vmap(lambda Jf: jnp.diag(Jf))(Jfs)
       bs = fs - As * states[:-1]
 
     else:
+      # Jfs are the Jacobians (what is going with the tuples rn)
+      Jfs = vmap(jax.jacrev(f, argnums=0))(
+        states[:-1], drivers[1:]
+      )
       As = Jfs
       bs = fs - jnp.einsum("tij,tj->ti", As, states[:-1])
 
@@ -241,15 +248,16 @@ class GRUModel(eqx.Module):
       final_hidden, _ = jax.lax.scan(
         lambda *a: self.single_step(*a), hidden_init, inputs
       )
-    elif self.method == "deer":
+    elif 'deer' in self.method:
       final_hidden = elk_alg(
         f=lambda state, input: self.single_step(state, input)[0],
         initial_state=hidden_init,
         states_guess=jnp.zeros((T, self.hidden_size)),  # TODO: we will want to warm start
         drivers=inputs,
         num_iters=self.num_iters,
-        quasi=False)
-    # pdb.set_trace()
+        quasi='quasi'in self.method,
+        diagonal_func=self.cell.diagonal_derivative if hasattr(self.cell, 'diagonal_derivative') else None,
+      )
     output = self.out(final_hidden)
     return output
 
@@ -501,23 +509,9 @@ def main(args):
   return
 
 
-# Old debugging code:
-class Arguments:
-  num_epochs = 1
-  num_iters = 10
-  method = 'seq'  # 'deer'
-  use_wandb = False
-  debug = True
-  batch_size = 32  # 256
-  learning_rate = 0.001
-  hidden_size = 16
-  seed = 0
-
-
 if __name__ == "__main__":
   # export XLA_PYTHON_CLIENT_PREALLOCATE=false
   # export XLA_PYTHON_CLIENT_MEM_FRACTION=0.8
-  # args = Arguments()
   parser = argparse.ArgumentParser(
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
   )
