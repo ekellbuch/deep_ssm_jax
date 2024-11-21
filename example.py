@@ -251,7 +251,6 @@ class GRUModel(eqx.Module):
     key1, key2 = jr.split(key)
     self.input_size = input_size
     self.hidden_size = hidden_size
-    #self.cell = eqx.nn.GRUCell(self.input_size, self.hidden_size, key=key1)
     self.cell = MinRNNCell(key=key1, hidden_dim=self.hidden_size, input_dim=self.input_size)
     self.output_size = 10
     self.out = eqx.nn.Linear(self.hidden_size, self.output_size, key=key2)
@@ -262,7 +261,6 @@ class GRUModel(eqx.Module):
     """
         state: jax.Array, with shape (hidden_size,)
         """
-    #new_state = self.cell(input, state)  # (hidden_size,)  # equinox's GRUCell flips the order of input and state
     new_state = self.cell(state, input)  # (hidden_size,)
     return (new_state, None)
 
