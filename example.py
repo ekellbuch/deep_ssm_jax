@@ -435,11 +435,10 @@ def train_model(model, optimizer, opt_state,
     all_val_batches = val_ds
     all_test_batches = test_ds
 
-  total_loss = 0.0
-  total_acc = 0.0
   num_batches = 0
 
   for epoch in tqdm(num_epochs, desc="Training epoch"):
+    total_loss = 0.0
     # Training loop
     for batch in tqdm(all_batches):
       x = batch[0]
