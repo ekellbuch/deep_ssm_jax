@@ -198,6 +198,40 @@ def load_sequential_mnist_v2(split, batch_size, validation_split=0.1):
 def process_fn(x, y):
     return (tf.transpose(tf.expand_dims(tf.reshape(x, [28 * 28]), axis=0)), y)
 
+class MinRNNCell(eqx.Module):
+    """
+    From: https://arxiv.org/pdf/1711.06788
+    """
+    input_weights : Float[Array, "hidden_dim input_dim"] # W_x
+    input_bias: Float[Array, "hidden_dim"] # b_z
+    U_z: Float[Array, "hidden_dim hidden_dim"] # U_z
+    b_u: Float[Array, "hidden_dim"] # b_u
+    recurrent_weights : Float[Array, "hidden_dim hidden_dim"] # U_h
+
+    def __init__(self, key, hidden_dim, input_dim):
+        k1, k2, k3 = jr.split(key, 3)
+        self.input_weights = jr.normal(k1, (hidden_dim, input_dim)) / jnp.sqrt(input_dim)
+        self.input_bias = jnp.zeros(hidden_dim)
+        self.recurrent_weights = jr.normal(k2, (hidden_dim, hidden_dim)) / jnp.sqrt(hidden_dim)
+        self.U_z = jr.normal(k3, (hidden_dim, hidden_dim)) / jnp.sqrt(hidden_dim)
+        self.b_u = jnp.zeros(hidden_dim)
+
+    def __call__(self, prev_state, input):
+        z = jnp.tanh(self.input_weights @ input + self.input_bias)
+        u = jax.nn.sigmoid(self.recurrent_weights @ prev_state + self.U_z @ z + self.b_u) # update gate
+        state = u * prev_state + (1 - u) * z
+        #output = self.output_weights @ state
+        return state#, (state, output)
+
+    def diagonal_derivative(self, prev_state, input):
+        """
+        Diagonal derivative of state wrt prev_state
+        Should be of length hidden_dim
+        Followign the formula (4) in https://arxiv.org/pdf/1711.06788
+        """
+        z = jnp.tanh(self.input_weights @ input + self.input_bias)
+        u = jax.nn.sigmoid(self.recurrent_weights @ prev_state + self.U_z @ z + self.b_u)
+        return u + (prev_state - z) * u * (1-u) * jnp.diag(self.recurrent_weights)
 
 class GRUModel(eqx.Module):
   """
@@ -217,7 +251,8 @@ class GRUModel(eqx.Module):
     key1, key2 = jr.split(key)
     self.input_size = input_size
     self.hidden_size = hidden_size
-    self.cell = eqx.nn.GRUCell(self.input_size, self.hidden_size, key=key1)
+    #self.cell = eqx.nn.GRUCell(self.input_size, self.hidden_size, key=key1)
+    self.cell = MinRNNCell(key=key1, hidden_dim=self.hidden_size, input_dim=self.input_size)
     self.output_size = 10
     self.out = eqx.nn.Linear(self.hidden_size, self.output_size, key=key2)
     self.num_iters = num_iters
@@ -227,7 +262,8 @@ class GRUModel(eqx.Module):
     """
         state: jax.Array, with shape (hidden_size,)
         """
-    new_state = self.cell(input, state)  # (hidden_size,)
+    #new_state = self.cell(input, state)  # (hidden_size,)  # equinox's GRUCell flips the order of input and state
+    new_state = self.cell(state, input)  # (hidden_size,)
     return (new_state, None)
 
   def __call__(self, inputs):
