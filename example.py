@@ -534,7 +534,10 @@ def main(args):
 
   # Initialize and train the model:
   model = GRUModel(jr.PRNGKey(0), input_size, hidden_size, num_iters, method)
-  optim = optax.adamw(learning_rate, b1=0.9, b2=0.999, weight_decay=0.)
+  optim = optax.chain(
+    optax.clip_by_global_norm(1.0),
+    optax.adamw(learning_rate, b1=0.9, b2=0.999, weight_decay=0.),
+  )
   opt_state = optim.init(eqx.filter(model, eqx.is_array))
 
   # train and eval model
