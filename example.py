@@ -48,7 +48,7 @@ from jax import random
 from src.s5.dataloading import Datasets
 
 
-def elk_alg(
+def deer_alg(
   f,
   initial_state,
   states_guess,
@@ -283,7 +283,7 @@ class GRUModel(eqx.Module):
         lambda *a: self.single_step(*a), hidden_init, inputs
       )
     elif 'deer' in self.method:
-      final_hidden = elk_alg(
+      final_hidden = deer_alg(
         f=lambda state, input: self.single_step(state, input)[0],
         initial_state=hidden_init,
         states_guess=jnp.zeros((T, self.hidden_size)),  # TODO: we will want to warm start
