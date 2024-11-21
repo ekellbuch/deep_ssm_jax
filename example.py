@@ -265,7 +265,7 @@ class GRUModel(eqx.Module):
     new_state = self.cell(state, input)  # (hidden_size,)
     return (new_state, None)
 
-  def __call__(self, inputs):
+  def __call__(self, inputs, states_guess=None):
     """
         Had to use an anonymous function in this scan in response to these annoying equinox / jax bugs
 
@@ -287,7 +287,7 @@ class GRUModel(eqx.Module):
       hidden_states = deer_alg(
         f=lambda state, input: self.single_step(state, input)[0],
         initial_state=hidden_init,
-        states_guess=jnp.zeros((T, self.hidden_size)),  # TODO: we will want to warm start
+        states_guess=states_guess if states_guess is not None else jnp.zeros((T, self.hidden_size)),  # TODO: we will want to warm start
         drivers=inputs,
         num_iters=self.num_iters,
         quasi='quasi'in self.method,
