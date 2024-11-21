@@ -212,7 +212,8 @@ class MinRNNCell(eqx.Module):
         k1, k2, k3 = jr.split(key, 3)
         self.input_weights = jr.normal(k1, (hidden_dim, input_dim)) / jnp.sqrt(input_dim)
         self.input_bias = jnp.zeros(hidden_dim)
-        self.recurrent_weights = jr.normal(k2, (hidden_dim, hidden_dim)) / jnp.sqrt(hidden_dim)
+        #self.recurrent_weights = jr.normal(k2, (hidden_dim, hidden_dim)) / jnp.sqrt(hidden_dim)
+        self.recurrent_weights = jnp.eye(hidden_dim)  # identity initialization of hidden to hidden connection
         self.U_z = jr.normal(k3, (hidden_dim, hidden_dim)) / jnp.sqrt(hidden_dim)
         self.b_u = jnp.zeros(hidden_dim)
 
