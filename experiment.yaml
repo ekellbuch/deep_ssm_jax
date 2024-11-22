@@ -3,6 +3,7 @@ jax_seed: 0 # seed
 num_epochs: 100 # number of training epochs
 num_iters: 1  # number of deer iterations
 method: 'seq'  # 'deer' ,'seq'
+k: 1. # amount of damping, should be between 0 and 1
 learning_rate: 0.001  # learning rate
 hidden_size: 256  # hidden size
 
