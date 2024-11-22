@@ -55,7 +55,7 @@ def elk_alg(
   drivers,
   num_iters=10,  # controls number of iteration
   quasi=False,
-  k=1. # amount of damping, should be between 0 and 1
+  k=0. # amount of damping, should be between 0 and 1
 ):
   """
     Currently is DEER
@@ -68,7 +68,7 @@ def elk_alg(
       drivers, jax.Array, (L-1,N_noise)
       num_iters: number of iterations to run
       quasi: bool, whether to use quasi-newton or not
-      k: amount of damping, should be between 0 and 1
+      k: amount of damping, should be between 0 and 1. 0 is no damping, 1 is max damping.
     Notes:
     - The initial_state is NOT the same as the initial mean we give to dynamax
     - The initial_mean is something on which we do inference
@@ -125,11 +125,11 @@ def elk_alg(
     # Compute the As and bs from fs and Jfs
     if quasi:
       As = vmap(lambda Jf: jnp.diag(Jf))(Jfs)
-      As = k * As # damping
+      As = (1-k) * As # damping
       bs = fs - As * states[:-1]
     else:
       As = Jfs
-      As = k * As # damping
+      As = (1-k) * As # damping
       bs = fs - jnp.einsum("tij,tj->ti", As, states[:-1])
 
     # initial_state is h0
@@ -209,7 +209,7 @@ class GRUModel(eqx.Module):
   k : int # amount of damping
 
   def __init__(
-    self, key, input_size, hidden_size, num_iters, method='seq'
+    self, key, input_size, hidden_size, num_iters, method='seq', k=0.
   ):
     key1, key2 = jr.split(key)
     self.input_size = input_size
@@ -219,6 +219,7 @@ class GRUModel(eqx.Module):
     self.out = eqx.nn.Linear(self.hidden_size, self.output_size, key=key2)
     self.num_iters = num_iters
     self.method = method
+    self.k = k
 
   def single_step(self, state, input):
     """
@@ -253,7 +254,7 @@ class GRUModel(eqx.Module):
         drivers=inputs,
         num_iters=self.num_iters,
         quasi=False,
-        k=k)
+        k=self.k)
     # pdb.set_trace()
     output = self.out(final_hidden)
     return output
