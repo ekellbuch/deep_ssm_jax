@@ -51,7 +51,7 @@ from src.s5.dataloading import Datasets
 def identity_diag(prev_state, input):
   return jnp.ones_like(prev_state)
 
-def deer_alg(
+def elk_alg(
   f,
   initial_state,
   states_guess,
@@ -59,6 +59,7 @@ def deer_alg(
   num_iters=10,  # controls number of iteration
   quasi=False,
   diagonal_func=None,
+  k=0. # amount of damping, should be between 0 and 1
 ):
   """
     Currently is DEER
@@ -71,6 +72,7 @@ def deer_alg(
       drivers, jax.Array, (L-1,N_noise)
       num_iters: number of iterations to run
       quasi: bool, whether to use quasi-newton or not
+      k: amount of damping, should be between 0 and 1. 0 is no damping, 1 is max damping.
     Notes:
     - The initial_state is NOT the same as the initial mean we give to dynamax
     - The initial_mean is something on which we do inference
@@ -129,14 +131,15 @@ def deer_alg(
           states[:-1], drivers[1:]
         )
         As = vmap(lambda Jf: jnp.diag(Jf))(Jfs)
+      As = (1-k) * As # damping
       bs = fs - As * states[:-1]
-
     else:
       # Jfs are the Jacobians (what is going with the tuples rn)
       Jfs = vmap(jax.jacrev(f, argnums=0))(
         states[:-1], drivers[1:]
       )
       As = Jfs
+      As = (1-k) * As # damping
       bs = fs - jnp.einsum("tij,tj->ti", As, states[:-1])
 
     # initial_state is h0
@@ -248,9 +251,10 @@ class GRUModel(eqx.Module):
   out: eqx.Module
   num_iters: int
   method: str
+  k : int # amount of damping
 
   def __init__(
-    self, key, input_size, hidden_size, num_iters, method='seq'
+    self, key, input_size, hidden_size, num_iters, method='seq', k=0.
   ):
     key1, key2 = jr.split(key)
     self.input_size = input_size
@@ -260,6 +264,7 @@ class GRUModel(eqx.Module):
     self.out = eqx.nn.Linear(self.hidden_size, self.output_size, key=key2)
     self.num_iters = num_iters
     self.method = method
+    self.k = k
 
   def single_step(self, state, input):
     """
@@ -287,7 +292,7 @@ class GRUModel(eqx.Module):
         lambda *a: self.single_step(*a), hidden_init, inputs
       )
     elif 'deer' in self.method:
-      hidden_states = deer_alg(
+      hidden_states = elk_alg(
         f=lambda state, input: self.single_step(state, input)[0],
         initial_state=hidden_init,
         states_guess=states_guess if states_guess is not None else jnp.zeros((T, self.hidden_size)),  # TODO: we will want to warm start
@@ -295,7 +300,8 @@ class GRUModel(eqx.Module):
         num_iters=self.num_iters,
         quasi='quasi'in self.method,
         diagonal_func=self.cell.diagonal_derivative if hasattr(self.cell, 'diagonal_derivative') else None,
-        #diagonal_func=identity_diag,
+        #diagonal_func=identity_diag,  # works poorly because we are not iterating to convergence
+        k=self.k,
       )
       final_hidden = hidden_states[-1]
     output = self.out(final_hidden)
@@ -522,6 +528,7 @@ def main(args):
   early_stopping_metric = args.early_stopping_metric
   patience = args.early_stopping_patience
   min_delta = args.early_stopping_min_delta
+  k = args.k # damping
 
   # Start a wandb run
   if args.use_wandb:
@@ -537,7 +544,7 @@ def main(args):
   #trainloader, valloader, testloader, aux_dataloaders = create_dataset(args)
 
   # Initialize and train the model:
-  model = GRUModel(jr.PRNGKey(0), input_size, hidden_size, num_iters, method)
+  model = GRUModel(jr.PRNGKey(0), input_size, hidden_size, num_iters, method, k=k)
   optim = optax.chain(
     optax.clip_by_global_norm(1.0),
     optax.adamw(learning_rate, b1=0.9, b2=0.999, weight_decay=0.),
