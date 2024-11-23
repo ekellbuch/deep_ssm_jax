@@ -448,6 +448,10 @@ def train_model(model, optimizer, opt_state,
       x, y = jnp.array(x), jnp.array(y)
       loss_value, model, opt_state = train_step(model, optimizer, opt_state, x, y)  # Pass model explicitly
 
+      if wandb.run is not None:
+        metrics = {"train/train_batch_loss": loss_value}
+        wandb.log(metrics)
+
       total_loss += loss_value
       num_batches += 1
 
