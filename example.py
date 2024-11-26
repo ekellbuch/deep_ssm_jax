@@ -20,7 +20,6 @@ python example.py -b experiment.yaml
 
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 export TF_FORCE_GPU_ALLOW_GROWTH=true
-
 """
 
 # ! pip install equinox
@@ -63,7 +62,6 @@ def elk_alg(
 ):
   """
     Currently is DEER
-
     Args:
       f: a forward fxn that takes in a full state and a driver, and outputs the next full state.
           In the context of a GRU, f is a GRU cell, the full state is the hidden state, and the driver is the input
@@ -242,8 +240,8 @@ class MinRNNCell(eqx.Module):
 
 class GRUModel(eqx.Module):
   """
-    Args
-    """
+  Args
+  """
   input_size: int  # Number of features of input seq (784)
   hidden_size: int  # state size for the SSM (64)
   output_size: int
@@ -252,14 +250,21 @@ class GRUModel(eqx.Module):
   num_iters: int
   method: str
   k : int # amount of damping
+  model_type: str # "minrnn" or "gru"
 
   def __init__(
-    self, key, input_size, hidden_size, num_iters, method='seq', k=0.
+    self, key, input_size, hidden_size, num_iters, method='seq', k=0., model_type="minrnn",
   ):
     key1, key2 = jr.split(key)
     self.input_size = input_size
     self.hidden_size = hidden_size
-    self.cell = MinRNNCell(key=key1, hidden_dim=self.hidden_size, input_dim=self.input_size)
+    self.model_type = model_type
+    if self.model_type == "minrnn":
+      self.cell = MinRNNCell(key=key1, hidden_dim=self.hidden_size, input_dim=self.input_size)
+    elif self.model_type == "gru":
+      self.cell = eqx.nn.GRUCell(key=key1, hidden_dim=self.hidden_size, input_dim=self.input_size)
+      # TODO: add diagonal derivative
+      # see https://github.com/patrick-kidger/equinox/blob/main/equinox/nn/_rnn.py
     self.output_size = 10
     self.out = eqx.nn.Linear(self.hidden_size, self.output_size, key=key2)
     self.num_iters = num_iters
@@ -270,7 +275,10 @@ class GRUModel(eqx.Module):
     """
         state: jax.Array, with shape (hidden_size,)
         """
-    new_state = self.cell(state, input)  # (hidden_size,)
+    if self.model_type == "minrnn":
+      new_state = self.cell(state, input)  # (hidden_size,)
+    elif self.model_type == "gru":
+      new_state = self.cell(input, state)  # (hidden_size,)
     return (new_state, None)
 
   def __call__(self, inputs, states_guess=None):
@@ -529,6 +537,7 @@ def main(args):
   patience = args.early_stopping_patience
   min_delta = args.early_stopping_min_delta
   k = args.k # damping
+  model_type = args.model_type
 
   # Start a wandb run
   if args.use_wandb:
@@ -544,7 +553,7 @@ def main(args):
   #trainloader, valloader, testloader, aux_dataloaders = create_dataset(args)
 
   # Initialize and train the model:
-  model = GRUModel(jr.PRNGKey(0), input_size, hidden_size, num_iters, method, k=k)
+  model = GRUModel(jr.PRNGKey(0), input_size, hidden_size, num_iters, method, k=k, model_type=model_type)
   optim = optax.chain(
     optax.clip_by_global_norm(1.0),
     optax.adamw(learning_rate, b1=0.9, b2=0.999, weight_decay=0.),
