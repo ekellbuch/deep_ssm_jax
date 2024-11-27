@@ -8,4 +8,4 @@ tqdm
 jaxtyping
 numpy
 torch
-tensorflow-cpu
+tensorflow
