@@ -1,0 +1,10 @@
+equinox
+tensorflow-cpu
+tensorflow-datasets
+optax
+wandb
+pyyaml
+omegaconf
+tqdm
+jaxtyping
+numpy
