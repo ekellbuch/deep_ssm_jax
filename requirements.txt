@@ -8,3 +8,4 @@ omegaconf
 tqdm
 jaxtyping
 numpy
+torch
