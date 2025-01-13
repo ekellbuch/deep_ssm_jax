@@ -10,4 +10,4 @@ numpy
 torch
 tensorflow-cpu
 torchvision
-hydra
+hydra-core
