@@ -9,3 +9,5 @@ jaxtyping
 numpy
 torch
 tensorflow-cpu
+torchvision
+hydra
