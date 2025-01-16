@@ -1,0 +1,23 @@
+# Created on 2025-01-16
+# Purpose: Compare seq, quasi-deer, and deer when running to convergence
+# All 3 algs should have very similar performance, but take different numbers of iterations
+command:
+  - ${env}
+  - python
+  - ${program}
+  - ${args_no_hyphens}
+method: grid
+parameters:
+  seed:
+    values:
+      - 0
+      - 1
+      - 2
+  method:
+    values:
+      - "seq"
+      - "deer"
+      - "quasideer"
+program: example.py
+project: nonlinear_ssm
+name: smnist_compare_methods_jax

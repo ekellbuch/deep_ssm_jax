@@ -30,6 +30,7 @@ from src.s5.dataloading import Datasets
 
 from algs.deer import seq1d
 from data.basic import load_sequential_mnist_all
+from utils.utils import save_checkpoint, load_checkpoint
 
 class MinRNNCell(eqx.Module):
     """
@@ -180,6 +181,7 @@ class GRUModel(eqx.Module):
         hidden_init = jnp.zeros((self.hidden_size,))
         if self.method == "seq":
             final_hidden, _ = jax.lax.scan(lambda *a: self.single_step(*a), hidden_init, inputs)
+            samp_iters = 1
         elif "deer" in self.method:
             quasi_deer = "quasi" in self.method
             def model_func(state, input, model):
@@ -191,28 +193,29 @@ class GRUModel(eqx.Module):
             self.cell,
             qmem_efficient=False,
             quasi=quasi_deer)
-            jax.debug.print("# of DEER iterations: {}", samp_iters)
+            # jax.debug.print("# of DEER iterations: {}", samp_iters)
+            # wandb.log({"num_iters": jnp.mean(samp_iters)})
             final_hidden = hidden_states[-1]
         output = self.out(final_hidden)
-        return output
+        return output, samp_iters
 
 
 # Define loss function (cross-entropy for classification)
 @eqx.filter_jit
-@eqx.filter_value_and_grad
+# @eqx.filter_value_and_grad
 def compute_loss(model, x, y):
-  logits = jax.vmap(model)(x)  # vmap to act on a batch dimension
+  logits, samp_iters = jax.vmap(model)(x)  # vmap to act on a batch dimension
   one_hot_labels = jax.nn.one_hot(y, logits.shape[-1])
   loss = optax.softmax_cross_entropy(logits, one_hot_labels).mean()
-  return loss
+  return loss, samp_iters
 
 @eqx.filter_jit
 def compute_metrics(model, x, y):
-  logits = jax.vmap(model)(x)  # vmap to act on a batch dimension
+  logits, samp_iters = jax.vmap(model)(x)  # vmap to act on a batch dimension
   one_hot_labels = jax.nn.one_hot(y, logits.shape[-1])
   loss = optax.softmax_cross_entropy(logits, one_hot_labels).mean()
   accuracy = compute_accuracy(logits, y)
-  return loss, accuracy
+  return loss, (accuracy, samp_iters)
 
 
 # Define accuracy function
@@ -222,15 +225,13 @@ def compute_accuracy(logits, labels):
 
 
 # Evaluation function
-# @eqx.filter_jit
+@eqx.filter_jit
 def evaluate_model(model, eval_ds):
-  # we could pre-compile evaluate model to avoid repeated compilation
-  # but we do not jit compile inside loops
-  # so we include jit in compute_metrics
   total_loss = 0.0
   num_batches = 0
   total_accuracy = 0.0
 
+  all_fp_iters = []
   for batch in tqdm(eval_ds, desc='Eval'):
     x = batch[0]
     y = batch[1]
@@ -238,20 +239,20 @@ def evaluate_model(model, eval_ds):
     x = x.swapaxes(-1, -2)  # (batch_size, input_size, seq_len)
 
     # Compute predictions and loss
-    loss, accuracy = compute_metrics(model, x, y)
-    #logits = jax.vmap(model)(x)  # vmap to act on a batch dimension
-    #one_hot_labels = jax.nn.one_hot(y, logits.shape[-1])
-    #loss = optax.softmax_cross_entropy(logits, one_hot_labels).mean()
-    #accuracy = compute_accuracy(logits, y)
+    loss, aux = compute_metrics(model, x, y)
+    accuracy, fp_iters = aux
 
     # Accumulate metrics
     total_loss += loss
     total_accuracy += accuracy
     num_batches += 1
+    all_fp_iters.append(fp_iters)
+  # pdb.set_trace()
+  all_fp_iters = jnp.concatenate(all_fp_iters)
 
   avg_loss = total_loss / num_batches
   avg_accuracy = total_accuracy / num_batches
-  return avg_accuracy, avg_loss
+  return avg_accuracy, avg_loss, all_fp_iters
 
 
 @eqx.filter_jit
@@ -264,50 +265,11 @@ def train_step(model, optimizer, opt_state, x, y):
       x: pixels
       y: label
     """
-  loss_value, grads = compute_loss(model, x, y)
+  loss_and_aux, grads = eqx.filter_value_and_grad(compute_loss, has_aux=True)(model, x, y)
+  loss_value, fp_iters = loss_and_aux
   updates, opt_state = optimizer.update(grads, opt_state, model)
   model = eqx.apply_updates(model, updates)
-  return loss_value, model, opt_state
-
-
-def create_dataset(args):
-  # Set randomness...
-  print("[*] Setting Randomness...")
-  key = random.PRNGKey(args.jax_seed)
-  init_rng, train_rng = random.split(key, num=2)
-
-  # Get dataset creation function
-  create_dataset_fn = Datasets[args.dataset]
-
-  # Dataset dependent logic
-  if args.dataset in ["imdb-classification", "listops-classification", "aan-classification"]:
-    padded = True
-    if args.dataset in ["aan-classification"]:
-      # Use retreival model for document matching
-      retrieval = True
-      print("Using retrieval model for document matching")
-    else:
-      retrieval = False
-
-  else:
-    padded = False
-    retrieval = False
-
-  # For speech dataset
-  if args.dataset in ["speech35-classification"]:
-    speech = True
-    print("Will evaluate on both resolutions for speech task")
-  else:
-    speech = False
-
-  # Create dataset...
-  init_rng, key = random.split(init_rng, num=2)
-  trainloader, valloader, testloader, aux_dataloaders, n_classes, seq_len, in_dim, train_size = \
-    create_dataset_fn(args.dir_name, seed=args.jax_seed, bsz=args.batch_size)
-
-  print(f"[*] Starting S5 Training on `{args.dataset}` =>> Initializing...")
-  return trainloader, valloader, testloader, aux_dataloaders
-
+  return loss_value, model, opt_state, fp_iters
 
 # Update the call to train_step in train_model
 def train_model(model, optimizer, opt_state,
@@ -339,10 +301,11 @@ def train_model(model, optimizer, opt_state,
             y = batch[1]
             x, y = jnp.array(x.numpy()), jnp.array(y.numpy())
             x = jnp.swapaxes(x, -1, -2)  # (batch_size, input_size, seq_len)
-            loss_value, model, opt_state = train_step(model, optimizer, opt_state, x, y)  # Pass model explicitly
+            loss_value, model, opt_state, fp_iters = train_step(model, optimizer, opt_state, x, y)  # Pass model explicitly
 
             if wandb.run is not None:
-                metrics = {"train/train_batch_loss": loss_value}
+                metrics = {"train/train_batch_loss": loss_value,
+                           "train/train_fixed_point_iters": jnp.mean(fp_iters)}
                 wandb.log(metrics)
 
             total_loss += loss_value
@@ -357,14 +320,15 @@ def train_model(model, optimizer, opt_state,
             wandb.log(metrics)
 
         # Evaluate after each epoch
-        val_accuracy, val_loss = evaluate_model(model, all_val_batches)
+        val_accuracy, val_loss, val_fp_iters = evaluate_model(model, all_val_batches)
         jax.block_until_ready(val_accuracy)
         jax.block_until_ready(val_loss)
 
         if wandb.run is not None:
             metrics = {"val/val_loss": val_loss,
                  "val/epoch": epoch,
-                 "val/accuracy": val_accuracy}
+                 "val/accuracy": val_accuracy,
+                 "val/val_fixed_point_iters": jnp.mean(val_fp_iters)}
             wandb.log(metrics)
 
         # Early stopping logic
@@ -374,6 +338,7 @@ def train_model(model, optimizer, opt_state,
         (early_stopping_metric == "val_accuracy" and current_metric > best_metric + min_delta):
                 best_metric = current_metric
                 no_improvement_epochs = 0
+                save_checkpoint(model, opt_state)
             else:
                 no_improvement_epochs += 1
 
@@ -383,15 +348,17 @@ def train_model(model, optimizer, opt_state,
 
         del val_accuracy, val_loss  # Free memory after logging
 
-    # TODO: update to best epoch
     # Log full test
     print(f"[*] Evaluating on test set...")
-    test_accuracy, test_loss = evaluate_model(model, all_test_batches)
+    model, opt_state = load_checkpoint(filepath="checkpoint.pkl")
+    test_accuracy, test_loss, test_fp_iters = evaluate_model(model, all_test_batches)
 
     if wandb.run is not None:
         metrics = {"test/test_loss": test_loss,
                "test/epoch": epoch,
-               "test/accuracy": test_accuracy}
+               "test/accuracy": test_accuracy,
+               "test/test_fixed_point_iters": jnp.mean(test_fp_iters),
+               }
         wandb.log(metrics)
     return model, opt_state, test_loss, test_accuracy
 
@@ -402,18 +369,25 @@ def main(cfg: DictConfig) -> None:
 
     # Initialize wandb if enabled
     if cfg.use_wandb:
-        wandb.init(project=cfg.wandb_project, config=dict(cfg), mode="offline")
+        wandb.init(project=cfg.wandb_project, config=dict(cfg))
 
     # Load datasets
     trainloader, valloader, testloader = load_sequential_mnist_all(
-        batch_size=cfg.batch_size, val_split=0.1, seed=0
+        batch_size=cfg.batch_size, val_split=0.1, seed=cfg.seed
     )
+
+    num_epochs = cfg.num_epochs
+    hidden_size = cfg.hidden_size
+    # fast dev run for prototyping
+    if cfg.fast_dev_run:
+      num_epochs=1
+      hidden_size=2
 
     # Initialize model
     model = GRUModel(
-        jr.PRNGKey(0),
+        jr.PRNGKey(cfg.seed),
         input_size=1,
-        hidden_size=cfg.hidden_size,
+        hidden_size=hidden_size,
         num_iters=cfg.num_iters,
         method=cfg.method,
         k=cfg.k,
@@ -427,6 +401,8 @@ def main(cfg: DictConfig) -> None:
     )
     opt_state = optim.init(eqx.filter(model, eqx.is_array))
 
+
+
     # Train and evaluate model
     _ = train_model(
         model,
@@ -435,7 +411,7 @@ def main(cfg: DictConfig) -> None:
         trainloader,
         valloader,
         testloader,
-        cfg.num_epochs,
+        num_epochs,
         cfg.debug,
         cfg.early_stopping,
         cfg.early_stopping_metric,
