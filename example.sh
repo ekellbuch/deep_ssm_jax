@@ -8,10 +8,4 @@
 #SBATCH --constraint='GPU_SKU:A100_SXM4&GPU_MEM:80GB'
 #SBATCH --mail-type=ALL
 
-# Environment setup
-module load cuda/12.4
-
-# Activate conda environment
-source /scratch/users/xavier18/miniconda3/bin/activate deep_ssm_jax
-
-python example.py
+/scratch/users/xavier18/venvs/deep_ssm_jax/bin/python3 example.py
