@@ -35,7 +35,7 @@ class MinRNNCell(eqx.Module):
     """
     From: https://arxiv.org/pdf/1711.06788
     """
-    input_weights : Float[Array, "hidden_dim input_dim"] # W_x
+    input_weights: Float[Array, "hidden_dim input_dim"] # W_x
     input_bias: Float[Array, "hidden_dim"] # b_z
     U_z: Float[Array, "hidden_dim hidden_dim"] # U_z
     b_u: Float[Array, "hidden_dim"] # b_u
