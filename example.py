@@ -275,7 +275,12 @@ def train_step(model, optimizer, opt_state, x, y):
 def train_model(model, optimizer, opt_state,
                 train_ds, val_ds, test_ds,
                 num_epochs, debug,
-                early_stopping, early_stopping_metric="val_loss", patience=5, min_delta=1e-4):
+                early_stopping, early_stopping_metric="val_loss", patience=5, min_delta=1e-4, dirname="checkpoints/", seed=0):
+    """
+    Args:
+      dirname: string for saving the best model
+      seed: seed used to train (for saving purposes)
+    """
     best_metric = float("inf") if early_stopping_metric == "val_loss" else float("-inf")
     no_improvement_epochs = 0
 
@@ -332,13 +337,14 @@ def train_model(model, optimizer, opt_state,
             wandb.log(metrics)
 
         # Early stopping logic
+        checkpoint_filepath = f"{dirname}/best_model_seed_{seed}.pkl"
         if early_stopping:
             current_metric = val_loss if early_stopping_metric == "val_loss" else val_accuracy
             if (early_stopping_metric == "val_loss" and current_metric < best_metric - min_delta) or \
         (early_stopping_metric == "val_accuracy" and current_metric > best_metric + min_delta):
                 best_metric = current_metric
                 no_improvement_epochs = 0
-                save_checkpoint(model, opt_state)
+                save_checkpoint(model, opt_state, filepath=checkpoint_filepath)
             else:
                 no_improvement_epochs += 1
 
@@ -350,7 +356,8 @@ def train_model(model, optimizer, opt_state,
 
     # Log full test
     print(f"[*] Evaluating on test set...")
-    model, opt_state = load_checkpoint(filepath="checkpoint.pkl")
+    model, opt_state = load_checkpoint(filepath=checkpoint_filepath)
+    wandb.save(checkpoint_filepath)
     test_accuracy, test_loss, test_fp_iters = evaluate_model(model, all_test_batches)
 
     if wandb.run is not None:
@@ -401,7 +408,8 @@ def main(cfg: DictConfig) -> None:
     )
     opt_state = optim.init(eqx.filter(model, eqx.is_array))
 
-
+    # Create a directory to save checkpoints
+    dirname = f"checkpoints/{cfg.date}/{cfg.method}/"
 
     # Train and evaluate model
     _ = train_model(
@@ -417,6 +425,8 @@ def main(cfg: DictConfig) -> None:
         cfg.early_stopping_metric,
         cfg.early_stopping_patience,
         cfg.early_stopping_min_delta,
+        dirname,
+        cfg.seed,
     )
 
     if cfg.use_wandb:
