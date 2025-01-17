@@ -30,6 +30,7 @@ def seq1d(
     quasi: bool = False,
     qmem_efficient: bool = True,  # XG addition
     full_trace: bool = False,  # XG addition
+    tol = 1e-4, # XG addition
 ):
     """
     Solve the discrete sequential equation, y[i + 1] = func(y[i], x[i], params) with the DEER framework.
@@ -104,6 +105,7 @@ def seq1d(
             quasi=quasi,
             full_trace=full_trace,
             qmem_efficient=qmem_efficient,
+            tol=tol,
         )
     else:
         yt, samp_iters = deer_iteration(
@@ -122,6 +124,7 @@ def seq1d(
             quasi=quasi,
             full_trace=full_trace,
             qmem_efficient=qmem_efficient,
+            tol=tol,
         )
     if full_trace:
         return (jnp.vstack((yinit_guess[None, ...], yt)), samp_iters)
@@ -129,7 +132,7 @@ def seq1d(
         return (yt, samp_iters)
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2, 3, 9, 10, 11, 12, 13, 14))
+@partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2, 3, 9, 10, 11, 12, 13, 14, 15))
 def deer_iteration(
     inv_lin: Callable[[List[jnp.ndarray], jnp.ndarray, Any], jnp.ndarray],
     func: Callable[[List[jnp.ndarray], Any, Any], jnp.ndarray],
@@ -146,6 +149,7 @@ def deer_iteration(
     quasi: bool = False,  # XG addition
     qmem_efficient: bool = True,  # XG addition
     full_trace: bool = False,  # XG addition
+    tol: float = 1e-4, # XG addition
 ) -> jnp.ndarray:
     """
     Perform the iteration from the DEER framework.
@@ -211,6 +215,7 @@ def deer_iteration(
             clip_ytnext=clip_ytnext,
             full_trace=full_trace,
             qmem_efficient=qmem_efficient,
+            tol=tol,
         )
         return (yt, samp_iters)
     else:
@@ -228,6 +233,7 @@ def deer_iteration(
             memory_efficient=memory_efficient,
             clip_ytnext=clip_ytnext,
             full_trace=full_trace,
+            tol=tol,
         )
         return (yt, samp_iters)
 
@@ -249,6 +255,7 @@ def deer_iteration_eval(
     quasi: bool = False,  # XG addition
     qmem_efficient: bool = True,  # XG addition
     full_trace: bool = False,  # XG addition
+    tol: float = 1e-4, # XG addition
 ) -> jnp.ndarray:
     # compute the iteration
     if quasi:
@@ -267,6 +274,7 @@ def deer_iteration_eval(
             clip_ytnext=clip_ytnext,
             full_trace=full_trace,
             qmem_efficient=qmem_efficient,
+            tol=tol,
         )
     else:
         yt, gts, rhs, func, samp_iters = deer_iteration_helper(
@@ -282,6 +290,7 @@ def deer_iteration_eval(
             max_iter=max_iter,
             memory_efficient=memory_efficient,
             clip_ytnext=clip_ytnext,
+            tol=tol,
         )
     # the function must be wrapped as a partial to be used in the reverse mode
     resid = (
@@ -311,6 +320,7 @@ def deer_iteration_bwd(
     quasi: bool,  # XG addition
     qmem_efficient: bool,  # XG addition
     full_trace: bool,  # XG addition
+    tol: float, # XG addition
     # the meaningful arguments
     resid: Any,
     grad_yt: jnp.ndarray,
@@ -364,6 +374,7 @@ def deer_iteration_helper(
     memory_efficient: bool = False,
     clip_ytnext: bool = False,
     full_trace: bool = False,  # XG addition
+    tol: float = 1e-4, # XG addition
 ) -> Tuple[jnp.ndarray, Optional[List[jnp.ndarray]], Callable]:
     """
     Notes:
@@ -375,7 +386,7 @@ def deer_iteration_helper(
 
     dtype = yinit_guess.dtype
     # set the tolerance to be 1e-4 if dtype is float32, else 1e-7 for float64
-    tol = 1e-7 if dtype == jnp.float64 else 1e-4
+    # tol = 1e-7 if dtype == jnp.float64 else 1e-4
 
     # use the iter function if doing early stopping
     def iter_func(
@@ -627,6 +638,7 @@ def diagonal_deer_iteration_helper(
     clip_ytnext: bool = False,
     full_trace: bool = False,  # XG addition
     qmem_efficient: bool = True,  # XG addition
+    tol: float = 1e-4, # XG addition
 ) -> Tuple[jnp.ndarray, Optional[List[jnp.ndarray]], Callable]:
     # obtain the functions to compute the jacobians and the function
     jacfunc = jax.vmap(
@@ -636,7 +648,7 @@ def diagonal_deer_iteration_helper(
 
     dtype = yinit_guess.dtype
     # set the tolerance to be 1e-4 if dtype is float32, else 1e-7 for float64
-    tol = 1e-7 if dtype == jnp.float64 else 1e-4
+    # tol = 1e-7 if dtype == jnp.float64 else 1e-4
 
     def iter_func(
         iter_inp: Tuple[jnp.ndarray, jnp.ndarray, List[jnp.ndarray], jnp.ndarray]

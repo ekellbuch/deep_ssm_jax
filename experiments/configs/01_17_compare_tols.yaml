@@ -1,0 +1,25 @@
+# Created on 2025-01-17
+# Purpose: Look at the effect of different tolerances on quasi-deer
+command:
+  - ${env}
+  - python
+  - ${program}
+  - ${args_no_hyphens}
+method: grid
+parameters:
+  seed:
+    values:
+      - 0
+      - 1
+      - 2
+  method:
+    values:
+      - "quasideer"
+  tol:
+    values:
+      - 1e-1
+      - 1e-2
+      - 1e-3
+program: example.py
+project: nonlinear_ssm
+name: smnist_jax_tol

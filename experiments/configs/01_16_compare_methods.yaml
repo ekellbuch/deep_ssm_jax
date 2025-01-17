@@ -1,6 +1,8 @@
 # Created on 2025-01-16
 # Purpose: Compare seq, quasi-deer, and deer when running to convergence
 # All 3 algs should have very similar performance, but take different numbers of iterations
+# Note: DEER runs out of memory, seq gets to 98% accuracy, and quasi-deer has bad training performance and slow convergence
+# the bad training performance is likely because of the approximate gradient
 command:
   - ${env}
   - python

@@ -121,9 +121,6 @@ class AugmentedGRUCell(eqx.nn.GRUCell):
 
 
 class GRUModel(eqx.Module):
-    """
-  Args
-  """
     input_size: int  # Number of features of input seq (784)
     hidden_size: int  # state size for the SSM (64)
     output_size: int
@@ -133,9 +130,10 @@ class GRUModel(eqx.Module):
     method: str
     k : int # amount of damping
     model_type: str # "minrnn" or "gru"
+    tol: float # tolerance for convergence
 
     def __init__(
-  self, key, input_size, hidden_size, num_iters, method='seq', k=0., model_type="minrnn",
+  self, key, input_size, hidden_size, num_iters, method='seq', k=0., model_type="minrnn", tol=1e-4,
   ):
         key1, key2 = jr.split(key)
         self.input_size = input_size
@@ -152,6 +150,7 @@ class GRUModel(eqx.Module):
         self.num_iters = num_iters
         self.method = method
         self.k = k
+        self.tol = tol
 
     def single_step(self, state, input):
         """
@@ -192,9 +191,9 @@ class GRUModel(eqx.Module):
             inputs,
             self.cell,
             qmem_efficient=False,
-            quasi=quasi_deer)
-            # jax.debug.print("# of DEER iterations: {}", samp_iters)
-            # wandb.log({"num_iters": jnp.mean(samp_iters)})
+            quasi=quasi_deer,
+            tol=self.tol,
+            )
             final_hidden = hidden_states[-1]
         output = self.out(final_hidden)
         return output, samp_iters
@@ -399,6 +398,7 @@ def main(cfg: DictConfig) -> None:
         method=cfg.method,
         k=cfg.k,
         model_type=cfg.model_type,
+        tol=cfg.tol,
     )
 
     # Initialize optimizer

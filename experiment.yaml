@@ -9,6 +9,8 @@ learning_rate: 0.001  # learning rate
 hidden_size: 256  # hidden size
 model_type: "gru"
 
+tol: 1e-4  # tolerance for convergence
+
 debug: false # debug mode
 
 use_wandb: wandb # use wandb for logging
