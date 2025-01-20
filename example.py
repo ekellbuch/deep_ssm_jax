@@ -409,7 +409,8 @@ def main(cfg: DictConfig) -> None:
     opt_state = optim.init(eqx.filter(model, eqx.is_array))
 
     # Create a directory to save checkpoints
-    dirname = f"checkpoints/{cfg.date}/{cfg.method}/"
+    # need to be very careful that simultaneous runs aren't writing to the same directory
+    dirname = f"checkpoints/{cfg.date}/{cfg.method}_{cfg.tol}/"
 
     # Train and evaluate model
     _ = train_model(
