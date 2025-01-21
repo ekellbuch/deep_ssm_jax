@@ -31,7 +31,7 @@ batch_size: 256  # batch size
 fast_dev_run: False
 explore: False # if explore is True, don't use hold out test set
 
-date: "2025-01-20"
+date: "2025-01-21"
 
 hydra:
   run:
