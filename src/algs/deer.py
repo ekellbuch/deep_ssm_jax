@@ -31,6 +31,7 @@ def seq1d(
     qmem_efficient: bool = True,  # XG addition
     full_trace: bool = False,  # XG addition
     tol = 1e-4, # XG addition
+    clip: bool = False, # XG addition
 ):
     """
     Solve the discrete sequential equation, y[i + 1] = func(y[i], x[i], params) with the DEER framework.
@@ -62,6 +63,8 @@ def seq1d(
     full_trace: bool
         If True, return the full trace of all the Newton iterates for a fixed specification of max_iter (uses a scan)
         if False, return only the final iterate (uses a jax.lax.while_loop)
+    tol: float, default 1e-4, threshold for convergence
+    clip: bool, default False, whether to clip the diagonal Jacobian to avoid numerical instability
 
     Returns
     -------
@@ -106,6 +109,7 @@ def seq1d(
             full_trace=full_trace,
             qmem_efficient=qmem_efficient,
             tol=tol,
+            clip=clip,
         )
     else:
         yt, samp_iters = deer_iteration(
@@ -125,6 +129,7 @@ def seq1d(
             full_trace=full_trace,
             qmem_efficient=qmem_efficient,
             tol=tol,
+            clip=clip,
         )
     if full_trace:
         return (jnp.vstack((yinit_guess[None, ...], yt)), samp_iters)
@@ -132,7 +137,7 @@ def seq1d(
         return (yt, samp_iters)
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2, 3, 9, 10, 11, 12, 13, 14, 15))
+@partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2, 3, 9, 10, 11, 12, 13, 14, 15, 16))
 def deer_iteration(
     inv_lin: Callable[[List[jnp.ndarray], jnp.ndarray, Any], jnp.ndarray],
     func: Callable[[List[jnp.ndarray], Any, Any], jnp.ndarray],
@@ -150,6 +155,7 @@ def deer_iteration(
     qmem_efficient: bool = True,  # XG addition
     full_trace: bool = False,  # XG addition
     tol: float = 1e-4, # XG addition
+    clip: bool=False, # XG addition
 ) -> jnp.ndarray:
     """
     Perform the iteration from the DEER framework.
@@ -216,6 +222,7 @@ def deer_iteration(
             full_trace=full_trace,
             qmem_efficient=qmem_efficient,
             tol=tol,
+            clip=clip,
         )
         return (yt, samp_iters)
     else:
@@ -234,6 +241,7 @@ def deer_iteration(
             clip_ytnext=clip_ytnext,
             full_trace=full_trace,
             tol=tol,
+            clip=clip,
         )
         return (yt, samp_iters)
 
@@ -256,6 +264,7 @@ def deer_iteration_eval(
     qmem_efficient: bool = True,  # XG addition
     full_trace: bool = False,  # XG addition
     tol: float = 1e-4, # XG addition
+    clip: bool=False, # XG addition
 ) -> jnp.ndarray:
     # compute the iteration
     if quasi:
@@ -275,6 +284,7 @@ def deer_iteration_eval(
             full_trace=full_trace,
             qmem_efficient=qmem_efficient,
             tol=tol,
+            clip=clip,
         )
     else:
         yt, gts, rhs, func, samp_iters = deer_iteration_helper(
@@ -291,6 +301,7 @@ def deer_iteration_eval(
             memory_efficient=memory_efficient,
             clip_ytnext=clip_ytnext,
             tol=tol,
+            clip=clip,
         )
     # the function must be wrapped as a partial to be used in the reverse mode
     resid = (
@@ -321,6 +332,7 @@ def deer_iteration_bwd(
     qmem_efficient: bool,  # XG addition
     full_trace: bool,  # XG addition
     tol: float, # XG addition
+    clip: bool, # XG addition
     # the meaningful arguments
     resid: Any,
     grad_yt: jnp.ndarray,
@@ -375,6 +387,7 @@ def deer_iteration_helper(
     clip_ytnext: bool = False,
     full_trace: bool = False,  # XG addition
     tol: float = 1e-4, # XG addition
+    clip: bool=False, # XG addition
 ) -> Tuple[jnp.ndarray, Optional[List[jnp.ndarray]], Callable]:
     """
     Notes:
@@ -639,6 +652,7 @@ def diagonal_deer_iteration_helper(
     full_trace: bool = False,  # XG addition
     qmem_efficient: bool = True,  # XG addition
     tol: float = 1e-4, # XG addition
+    clip: bool=False, # XG addition
 ) -> Tuple[jnp.ndarray, Optional[List[jnp.ndarray]], Callable]:
     # obtain the functions to compute the jacobians and the function
     jacfunc = jax.vmap(
@@ -666,7 +680,7 @@ def diagonal_deer_iteration_helper(
             ]
         else:
             gts = [
-                -jax.vmap(jnp.diag)(gt)
+                jnp.clip(-jax.vmap(jnp.diag)(gt), a_min=-1.0, a_max=1.0)
                 for gt in jacfunc(
                     ytparams, xinput, params
                 )  # adjusted to deal with scalars

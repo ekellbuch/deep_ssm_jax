@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=sweep
-#SBATCH --error=log/sweep%j_%a.err         
-#SBATCH --output=log/sweep%j_%a.out     
+#SBATCH --job-name=jax
+#SBATCH --error=log/jax%j_%a.err         
+#SBATCH --output=log/jax%j_%a.out     
 #SBATCH --time=47:59:59                 
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-gpu=4

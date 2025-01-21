@@ -29,7 +29,7 @@ import hydra
 from src.s5.dataloading import Datasets
 
 from algs.deer import seq1d
-from data.basic import load_sequential_mnist_all
+from data.basic import load_sequential_pixels_all
 from utils.utils import save_checkpoint, load_checkpoint
 
 class MinRNNCell(eqx.Module):
@@ -129,11 +129,12 @@ class GRUModel(eqx.Module):
     num_iters: int
     method: str
     k : int # amount of damping
+    clip: bool # whether to clip the diagonal Jacobian
     model_type: str # "minrnn" or "gru"
     tol: float # tolerance for convergence
 
     def __init__(
-  self, key, input_size, hidden_size, num_iters, method='seq', k=0., model_type="minrnn", tol=1e-4,
+  self, key, input_size, hidden_size, num_iters, method='seq', k=0., clip=False, model_type="minrnn", tol=1e-4,
   ):
         key1, key2 = jr.split(key)
         self.input_size = input_size
@@ -150,6 +151,7 @@ class GRUModel(eqx.Module):
         self.num_iters = num_iters
         self.method = method
         self.k = k
+        self.clip = clip
         self.tol = tol
 
     def single_step(self, state, input):
@@ -193,6 +195,7 @@ class GRUModel(eqx.Module):
             qmem_efficient=False,
             quasi=quasi_deer,
             tol=self.tol,
+            clip=self.clip,
             )
             final_hidden = hidden_states[-1]
         output = self.out(final_hidden)
@@ -378,8 +381,8 @@ def main(cfg: DictConfig) -> None:
         wandb.init(project=cfg.wandb_project, config=dict(cfg))
 
     # Load datasets
-    trainloader, valloader, testloader = load_sequential_mnist_all(
-        batch_size=cfg.batch_size, val_split=0.1, seed=cfg.seed
+    trainloader, valloader, testloader = load_sequential_pixels_all(
+        batch_size=cfg.batch_size, val_split=0.1, seed=cfg.seed, explore=cfg.explore
     )
 
     num_epochs = cfg.num_epochs
@@ -397,6 +400,7 @@ def main(cfg: DictConfig) -> None:
         num_iters=cfg.num_iters,
         method=cfg.method,
         k=cfg.k,
+        clip=cfg.clip,
         model_type=cfg.model_type,
         tol=cfg.tol,
     )
@@ -410,7 +414,7 @@ def main(cfg: DictConfig) -> None:
 
     # Create a directory to save checkpoints
     # need to be very careful that simultaneous runs aren't writing to the same directory
-    dirname = f"checkpoints/{cfg.date}/{cfg.method}_{cfg.tol}/"
+    dirname = f"checkpoints/{cfg.date}/{cfg.method}_tol={cfg.tol}_clipELK={cfg.clip}/"
 
     # Train and evaluate model
     _ = train_model(

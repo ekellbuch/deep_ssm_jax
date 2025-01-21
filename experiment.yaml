@@ -5,6 +5,7 @@ num_epochs: 100 # number of training epochs
 num_iters: 2  # number of deer iterations
 method: 'quasideer'  # 'quasideer', 'deer' ,'seq'
 k: 0. # amount of damping, should be between 0 and 1. Should be the strength of damping, so that 0 is no damping, and 1 is max damping. Usually around 0.05 is good
+clip: False  # use clip ELK
 learning_rate: 0.001  # learning rate
 hidden_size: 256  # hidden size
 model_type: "gru"
@@ -27,8 +28,9 @@ dir_name: "data"
 batch_size: 256  # batch size
 
 fast_dev_run: False
+explore: False # if explore is True, don't use hold out test set
 
-date: "2025-01-16"
+date: "2025-01-20"
 
 hydra:
   run:

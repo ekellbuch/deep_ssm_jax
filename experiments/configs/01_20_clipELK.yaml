@@ -1,0 +1,35 @@
+# Created on 2025-01-20
+# Purpose: see if clipELK makes a difference for training to convergence
+command:
+  - ${env}
+  - python
+  - ${program}
+  - ${args_no_hyphens}
+method: grid
+parameters:
+  seed:
+    values:
+      - 0
+      - 1
+      - 2
+  method:
+    values:
+      - "quasideer"
+  tol:
+    values:
+      - 1e-1
+      - 1e-2
+      - 1e-3
+      - 1e-4
+  date:
+    values:
+      - "2025-01-20"
+  explore:
+    values:
+      - True
+  clip:
+    values:
+      - True
+program: example.py
+project: nonlinear_ssm
+name: clip_ELK
