@@ -23,6 +23,7 @@ from omegaconf import DictConfig, OmegaConf
 from jax import random
 
 import pdb
+import time
 
 import hydra
 
@@ -132,9 +133,10 @@ class GRUModel(eqx.Module):
     clip: bool # whether to clip the diagonal Jacobian
     model_type: str # "minrnn" or "gru"
     tol: float # tolerance for convergence
+    while_loop: bool # whether to use while loop
 
     def __init__(
-  self, key, input_size, hidden_size, num_iters, method='seq', k=0., clip=False, model_type="minrnn", tol=1e-4,
+  self, key, input_size, hidden_size, num_iters, method='seq', k=0., clip=False, model_type="minrnn", tol=1e-4, while_loop=False
   ):
         key1, key2 = jr.split(key)
         self.input_size = input_size
@@ -153,6 +155,7 @@ class GRUModel(eqx.Module):
         self.k = k
         self.clip = clip
         self.tol = tol
+        self.while_loop = while_loop
 
     def single_step(self, state, input):
         """
@@ -192,8 +195,10 @@ class GRUModel(eqx.Module):
             hidden_init,
             inputs,
             self.cell,
+            max_iter=self.num_iters,
             qmem_efficient=False,
             quasi=quasi_deer,
+            full_trace=not self.while_loop,
             tol=self.tol,
             clip=self.clip,
             )
@@ -303,6 +308,7 @@ def train_model(model, optimizer, opt_state,
     for epoch in tqdm(num_epochs, desc="Training epoch"):
         total_loss = 0.0
         # Training loop
+        t0 = time.time()
         for batch in tqdm(all_batches):
             x = batch[0]
             y = batch[1]
@@ -317,13 +323,15 @@ def train_model(model, optimizer, opt_state,
 
             total_loss += loss_value
             num_batches += 1
+        t1 = time.time()
 
         # Log training metrics
         avg_loss = total_loss / num_batches
 
         if wandb.run is not None:
             metrics = {"train/train_loss": avg_loss,
-                 "train/epoch": epoch}
+                 "train/epoch": epoch,
+                 "train/train_time": t1 - t0}
             wandb.log(metrics)
 
         # Evaluate after each epoch
@@ -403,6 +411,7 @@ def main(cfg: DictConfig) -> None:
         clip=cfg.clip,
         model_type=cfg.model_type,
         tol=cfg.tol,
+        while_loop=cfg.while_loop,
     )
 
     # Initialize optimizer

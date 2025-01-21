@@ -8,6 +8,7 @@ Modifications for benchmarking and quasi-DEER by Xavier Gonzalez (2024).
 
 Todo:
 * get the code to use an arbitrary diagonal derivative which is a property of the cell
+* I think one of your shapes is off for the full scan, you should put some breakpoints in 
 """
 
 from typing import Callable, Any, Tuple, List, Optional
@@ -18,6 +19,7 @@ import jax.random as jr
 
 from functools import partial
 
+import pdb
 
 def seq1d(
     func: Callable[[jnp.ndarray, Any, Any], jnp.ndarray],
@@ -90,51 +92,88 @@ def seq1d(
         y = jnp.concatenate((y0[None, :], y[:-1, :]), axis=0)  # (nsamples, ny)
         return [y]
 
-    # perform the deer iteration
-    if quasi:
-        yt, samp_iters = deer_iteration(
-            inv_lin=diagonal_seq1d_inv_lin,
-            p_num=1,
-            func=func2,
-            shifter_func=shifter_func,
-            params=params,
-            xinput=xinp,
-            inv_lin_params=(y0,),
-            shifter_func_params=(y0,),
-            yinit_guess=yinit_guess,
-            max_iter=max_iter,
-            memory_efficient=memory_efficient,
-            clip_ytnext=True,
-            quasi=quasi,
-            full_trace=full_trace,
-            qmem_efficient=qmem_efficient,
-            tol=tol,
-            clip=clip,
-        )
-    else:
-        yt, samp_iters = deer_iteration(
-            inv_lin=seq1d_inv_lin,
-            p_num=1,
-            func=func2,
-            shifter_func=shifter_func,
-            params=params,
-            xinput=xinp,
-            inv_lin_params=(y0,),
-            shifter_func_params=(y0,),
-            yinit_guess=yinit_guess,
-            max_iter=max_iter,
-            memory_efficient=memory_efficient,
-            clip_ytnext=True,
-            quasi=quasi,
-            full_trace=full_trace,
-            qmem_efficient=qmem_efficient,
-            tol=tol,
-            clip=clip,
-        )
     if full_trace:
-        return (jnp.vstack((yinit_guess[None, ...], yt)), samp_iters)
+        # don't use the custom backward pass
+        if quasi:
+            yt, _, _, _, samp_iters = diagonal_deer_iteration_helper(
+            inv_lin=diagonal_seq1d_inv_lin,
+            func=func2,
+            shifter_func=shifter_func,
+            p_num=1,
+            params=params,
+            xinput=xinp,
+            inv_lin_params=(y0,),
+            shifter_func_params=(y0,),
+            yinit_guess=yinit_guess,
+            max_iter=max_iter,
+            memory_efficient=memory_efficient,
+            clip_ytnext=True,
+            full_trace=full_trace,
+            qmem_efficient=qmem_efficient,
+            tol=tol,
+            clip=clip,
+        )
+        else:
+            yt, _, _, _, samp_iters = deer_iteration_helper(
+                inv_lin=seq1d_inv_lin,
+                func=func2,
+                shifter_func=shifter_func,
+                p_num=1,
+                params=params,
+                xinput=xinp,
+                inv_lin_params=(y0,),
+                shifter_func_params=(y0,),
+                yinit_guess=yinit_guess,
+                max_iter=max_iter,
+                memory_efficient=memory_efficient,
+                clip_ytnext=True,
+                full_trace=full_trace,
+                tol=tol,
+                clip=clip,
+            )
     else:
-        return (yt, samp_iters)
+        # use the custom backward pass
+        if quasi:
+            yt, samp_iters = deer_iteration(
+                inv_lin=diagonal_seq1d_inv_lin,
+                p_num=1,
+                func=func2,
+                shifter_func=shifter_func,
+                params=params,
+                xinput=xinp,
+                inv_lin_params=(y0,),
+                shifter_func_params=(y0,),
+                yinit_guess=yinit_guess,
+                max_iter=max_iter,
+                memory_efficient=memory_efficient,
+                clip_ytnext=True,
+                quasi=quasi,
+                full_trace=full_trace,
+                qmem_efficient=qmem_efficient,
+                tol=tol,
+                clip=clip,
+            )
+        else:
+            yt, samp_iters = deer_iteration(
+                inv_lin=seq1d_inv_lin,
+                p_num=1,
+                func=func2,
+                shifter_func=shifter_func,
+                params=params,
+                xinput=xinp,
+                inv_lin_params=(y0,),
+                shifter_func_params=(y0,),
+                yinit_guess=yinit_guess,
+                max_iter=max_iter,
+                memory_efficient=memory_efficient,
+                clip_ytnext=True,
+                quasi=quasi,
+                full_trace=full_trace,
+                qmem_efficient=qmem_efficient,
+                tol=tol,
+                clip=clip,
+            )
+    return (yt, samp_iters)
 
 
 @partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2, 3, 9, 10, 11, 12, 13, 14, 15, 16))
@@ -464,9 +503,10 @@ def deer_iteration_helper(
     iiter = jnp.array(0, dtype=jnp.int32)
     # decide whether to record full trace or not
     if full_trace:
-        _, yt = jax.lax.scan(
+        _, yt_all = jax.lax.scan(
             scan_func, (err, yinit_guess, gts, iiter), None, length=max_iter
         )
+        yt = yt_all[-1]
         samp_iters = max_iter
     else:
         _, yt, gts, samp_iters = jax.lax.while_loop(
@@ -679,13 +719,18 @@ def diagonal_deer_iteration_helper(
                 )
             ]
         else:
+            # let's give up on passing clip for now, and just always do it
+            # if clip:
             gts = [
                 jnp.clip(-jax.vmap(jnp.diag)(gt), a_min=-1.0, a_max=1.0)
                 for gt in jacfunc(
                     ytparams, xinput, params
                 )  # adjusted to deal with scalars
             ]  # [p_num] + (nsamples, ny)
-        # rhs: (nsamples, ny)
+            # else:
+            #     gts = [
+            #         -jax.vmap(jnp.diag)(gt) for gt in jacfunc(ytparams, xinput, params) 
+            #     ]  
         rhs = func2(ytparams, xinput, params)  # (carry, input, params)
         rhs += sum(
             [
@@ -715,12 +760,17 @@ def diagonal_deer_iteration_helper(
                 )
             ]
         else:
+            # if clip:
             gts = [
-                -jax.vmap(jnp.diag)(gt)
+                jnp.clip(-jax.vmap(jnp.diag)(gt), a_min=-1.0, a_max=1.0)
                 for gt in jacfunc(
                     ytparams, xinput, params
                 )  # adjusted to deal with scalars
             ]  # [p_num] + (nsamples, ny)
+            # else:
+            #     gts = [
+            #         -jax.vmap(jnp.diag)(gt) for gt in jacfunc(ytparams, xinput, params)
+            #     ]
         # rhs: (nsamples, ny)
         rhs = func2(ytparams, xinput, params)  # (carry, input, params)
         rhs += sum(
@@ -749,10 +799,13 @@ def diagonal_deer_iteration_helper(
     gts = [gt] * p_num
     iiter = jnp.array(0, dtype=jnp.int32)
     # decide whether to record full trace or not
+    # now let's just output the final output
     if full_trace:
-        _, yt = jax.lax.scan(
+        _, yt_all = jax.lax.scan(
             scan_func, (err, yinit_guess, gts, iiter), None, length=max_iter
         )
+        yt = yt_all[-1] # only look at the final output
+        # pdb.set_trace()
         samp_iters = max_iter
     else:
         _, yt, gts, samp_iters = jax.lax.while_loop(

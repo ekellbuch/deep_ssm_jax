@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=smnist
-#SBATCH --error=smnist%j_%a.err         
-#SBATCH --output=smnist%j_%a.out     
+#SBATCH --job-name=jax
+#SBATCH --error=jax%j_%a.err         
+#SBATCH --output=jax%j_%a.out     
 #SBATCH --time=23:59:59                 
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-gpu=4

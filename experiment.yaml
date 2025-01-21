@@ -9,6 +9,7 @@ clip: False  # use clip ELK
 learning_rate: 0.001  # learning rate
 hidden_size: 256  # hidden size
 model_type: "gru"
+while_loop: False  # use while loop
 
 tol: 1e-4  # tolerance for convergence
 
