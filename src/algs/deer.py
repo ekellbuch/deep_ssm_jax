@@ -35,6 +35,7 @@ def seq1d(
     tol = 1e-4, # XG addition
     clip: bool = False, # XG addition
     picard: bool = False, # XG addition
+    k : float=0.0 # XG addition, for scaling
 ):
     """
     Solve the discrete sequential equation, y[i + 1] = func(y[i], x[i], params) with the DEER framework.

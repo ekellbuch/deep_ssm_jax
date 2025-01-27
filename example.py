@@ -332,7 +332,12 @@ def train_model(model, optimizer, opt_state,
             x, y = jnp.array(x.numpy()), jnp.array(y.numpy())
             x = jnp.swapaxes(x, -1, -2)  # (batch_size, input_size, seq_len)
             loss_value, model, opt_state, fp_iters = train_step(model, optimizer, opt_state, x, y)  # Pass model explicitly
-
+            # checkpoint slow converging version
+            if jnp.mean(fp_iters) > 700:
+                print(f"[*] Slow convergence detected at epoch {epoch + 1}")
+                checkpoint_filepath = f"{dirname}/slow_convergence_seed_{seed}.pkl"
+                save_checkpoint(model, opt_state, filepath=checkpoint_filepath)
+                wandb.save(checkpoint_filepath)
             if wandb.run is not None:
                 metrics = {"train/train_batch_loss": loss_value,
                            "train/train_fixed_point_iters": jnp.mean(fp_iters)}
@@ -372,6 +377,7 @@ def train_model(model, optimizer, opt_state,
                 best_metric = current_metric
                 no_improvement_epochs = 0
                 save_checkpoint(model, opt_state, filepath=checkpoint_filepath)
+                wandb.save(checkpoint_filepath)
             else:
                 no_improvement_epochs += 1
 
@@ -431,7 +437,7 @@ def main(cfg: DictConfig) -> None:
         while_loop=cfg.while_loop,
     )
 
-    # Initialize optimizer
+    # Initialize optimizer (this is doing gradient clipping)
     optim = optax.chain(
         optax.clip_by_global_norm(1.0),
         optax.adamw(cfg.learning_rate, b1=0.9, b2=0.999, weight_decay=0.0),
@@ -440,7 +446,7 @@ def main(cfg: DictConfig) -> None:
 
     # Create a directory to save checkpoints
     # need to be very careful that simultaneous runs aren't writing to the same directory
-    dirname = f"checkpoints/{cfg.date}/{cfg.method}_tol={cfg.tol}_clipELK={cfg.clip}/"
+    dirname = f"checkpoints/{cfg.date}/{cfg.method}_tol={cfg.tol}/"
 
     # Train and evaluate model
     _ = train_model(

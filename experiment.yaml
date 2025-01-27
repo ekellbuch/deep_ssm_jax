@@ -26,12 +26,12 @@ early_stopping_min_delta: 0.0001  # early stopping min delta
 
 dataset: "mnist-classification"
 dir_name: "data"
-batch_size: 256  # batch size, need to run with batch_size 16 for DEER
+batch_size: 256  # batch size, need to run with batch_size 64 for DEER
 
 fast_dev_run: False
 explore: False # if explore is True, don't use hold out test set
 
-date: "2025-01-21"
+date: "2025-01-27"
 
 hydra:
   run:
