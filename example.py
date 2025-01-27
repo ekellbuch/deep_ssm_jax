@@ -203,6 +203,23 @@ class GRUModel(eqx.Module):
             clip=self.clip,
             )
             final_hidden = hidden_states[-1]
+        elif self.method == "picard":
+            def model_func(state, input, model):
+                return model(input, state)
+            hidden_states, samp_iters = seq1d(
+            model_func,
+            hidden_init,
+            inputs,
+            self.cell,
+            max_iter=self.num_iters,
+            qmem_efficient=False,
+            quasi=True,
+            full_trace=not self.while_loop,
+            tol=self.tol,
+            clip=self.clip,
+            picard=True,
+            )
+            final_hidden = hidden_states[-1]
         output = self.out(final_hidden)
         return output, samp_iters
 

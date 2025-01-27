@@ -34,6 +34,7 @@ def seq1d(
     full_trace: bool = False,  # XG addition
     tol = 1e-4, # XG addition
     clip: bool = False, # XG addition
+    picard: bool = False, # XG addition
 ):
     """
     Solve the discrete sequential equation, y[i + 1] = func(y[i], x[i], params) with the DEER framework.
@@ -133,7 +134,28 @@ def seq1d(
             )
     else:
         # use the custom backward pass
-        if quasi:
+        if picard:
+            yt, samp_iters = deer_iteration(
+                inv_lin=diagonal_seq1d_inv_lin,
+                p_num=1,
+                func=func2,
+                shifter_func=shifter_func,
+                params=params,
+                xinput=xinp,
+                inv_lin_params=(y0,),
+                shifter_func_params=(y0,),
+                yinit_guess=yinit_guess,
+                max_iter=max_iter,
+                memory_efficient=memory_efficient,
+                clip_ytnext=True,
+                quasi=True,
+                full_trace=full_trace,
+                qmem_efficient=qmem_efficient,
+                tol=tol,
+                clip=clip,
+                picard=picard,
+            )
+        elif quasi:
             yt, samp_iters = deer_iteration(
                 inv_lin=diagonal_seq1d_inv_lin,
                 p_num=1,
@@ -176,7 +198,7 @@ def seq1d(
     return (yt, samp_iters)
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2, 3, 9, 10, 11, 12, 13, 14, 15, 16))
+@partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2, 3, 9, 10, 11, 12, 13, 14, 15, 16, 17))
 def deer_iteration(
     inv_lin: Callable[[List[jnp.ndarray], jnp.ndarray, Any], jnp.ndarray],
     func: Callable[[List[jnp.ndarray], Any, Any], jnp.ndarray],
@@ -195,6 +217,7 @@ def deer_iteration(
     full_trace: bool = False,  # XG addition
     tol: float = 1e-4, # XG addition
     clip: bool=False, # XG addition
+    picard: bool=False, # XG addition
 ) -> jnp.ndarray:
     """
     Perform the iteration from the DEER framework.
@@ -244,7 +267,28 @@ def deer_iteration(
     y: jnp.ndarray
         The output signal as the solution of the non-linear differential equations (nsamples, ny).
     """
-    if quasi:
+    if picard:
+        yt, _, _, _, samp_iters = diagonal_deer_iteration_helper(
+            inv_lin=inv_lin,
+            func=func,
+            shifter_func=shifter_func,
+            p_num=p_num,
+            params=params,
+            xinput=xinput,
+            inv_lin_params=inv_lin_params,
+            shifter_func_params=shifter_func_params,
+            yinit_guess=yinit_guess,
+            max_iter=max_iter,
+            memory_efficient=memory_efficient,
+            clip_ytnext=clip_ytnext,
+            full_trace=full_trace,
+            qmem_efficient=qmem_efficient,
+            tol=tol,
+            clip=clip,
+            picard=picard,
+        )
+        return (yt, samp_iters)
+    elif quasi:
         yt, _, _, _, samp_iters = diagonal_deer_iteration_helper(
             inv_lin=inv_lin,
             func=func,
@@ -304,9 +348,30 @@ def deer_iteration_eval(
     full_trace: bool = False,  # XG addition
     tol: float = 1e-4, # XG addition
     clip: bool=False, # XG addition
+    picard: bool=False, # XG addition
 ) -> jnp.ndarray:
     # compute the iteration
-    if quasi:
+    if picard:
+        yt, gts, rhs, func, samp_iters = diagonal_deer_iteration_helper(
+            inv_lin=inv_lin,
+            func=func,
+            shifter_func=shifter_func,
+            p_num=p_num,
+            params=params,
+            xinput=xinput,
+            inv_lin_params=inv_lin_params,
+            shifter_func_params=shifter_func_params,
+            yinit_guess=yinit_guess,
+            max_iter=max_iter,
+            memory_efficient=memory_efficient,
+            clip_ytnext=clip_ytnext,
+            full_trace=full_trace,
+            qmem_efficient=qmem_efficient,
+            tol=tol,
+            clip=clip,
+            picard=picard,
+        )
+    elif quasi:
         yt, gts, rhs, func, samp_iters = diagonal_deer_iteration_helper(
             inv_lin=inv_lin,
             func=func,
@@ -372,6 +437,7 @@ def deer_iteration_bwd(
     full_trace: bool,  # XG addition
     tol: float, # XG addition
     clip: bool, # XG addition
+    picard: bool, # XG addition
     # the meaningful arguments
     resid: Any,
     grad_yt: jnp.ndarray,
@@ -394,7 +460,7 @@ def deer_iteration_bwd(
         jacfunc = jax.vmap(jax.jacfwd(func, argnums=0), in_axes=(0, 0, None))
         # recompute gts
         ytparams = shifter_func(yt, shifter_func_params)
-        if quasi:
+        if quasi or picard:
             gts = [-jax.vmap(jnp.diag)(gt) for gt in jacfunc(ytparams, xinput, params)]
         else:
             gts = [-gt for gt in jacfunc(ytparams, xinput, params)]
@@ -693,6 +759,7 @@ def diagonal_deer_iteration_helper(
     qmem_efficient: bool = True,  # XG addition
     tol: float = 1e-4, # XG addition
     clip: bool=False, # XG addition
+    picard: bool=False, # XG addition
 ) -> Tuple[jnp.ndarray, Optional[List[jnp.ndarray]], Callable]:
     # obtain the functions to compute the jacobians and the function
     jacfunc = jax.vmap(
@@ -718,6 +785,8 @@ def diagonal_deer_iteration_helper(
                     ytparams[0], xinput, params
                 )
             ]
+        elif picard:
+            gts = [jnp.ones_like(yt)]
         else:
             # let's give up on passing clip for now, and just always do it
             # if clip:
@@ -729,8 +798,8 @@ def diagonal_deer_iteration_helper(
             ]  # [p_num] + (nsamples, ny)
             # else:
             #     gts = [
-            #         -jax.vmap(jnp.diag)(gt) for gt in jacfunc(ytparams, xinput, params) 
-            #     ]  
+            #         -jax.vmap(jnp.diag)(gt) for gt in jacfunc(ytparams, xinput, params)
+            #     ]
         rhs = func2(ytparams, xinput, params)  # (carry, input, params)
         rhs += sum(
             [
@@ -759,6 +828,8 @@ def diagonal_deer_iteration_helper(
                     ytparams[0], xinput, params
                 )
             ]
+        elif picard:
+            gts = [jnp.ones_like(yt)]
         else:
             # if clip:
             gts = [
