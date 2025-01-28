@@ -201,6 +201,7 @@ class GRUModel(eqx.Module):
             full_trace=not self.while_loop,
             tol=self.tol,
             clip=self.clip,
+            k=self.k,
             )
             final_hidden = hidden_states[-1]
         elif self.method == "picard":

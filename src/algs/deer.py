@@ -175,6 +175,7 @@ def seq1d(
                 qmem_efficient=qmem_efficient,
                 tol=tol,
                 clip=clip,
+                k=k,
             )
         else:
             yt, samp_iters = deer_iteration(
@@ -195,11 +196,12 @@ def seq1d(
                 qmem_efficient=qmem_efficient,
                 tol=tol,
                 clip=clip,
+                k=k,
             )
     return (yt, samp_iters)
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2, 3, 9, 10, 11, 12, 13, 14, 15, 16, 17))
+@partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2, 3, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18))
 def deer_iteration(
     inv_lin: Callable[[List[jnp.ndarray], jnp.ndarray, Any], jnp.ndarray],
     func: Callable[[List[jnp.ndarray], Any, Any], jnp.ndarray],
@@ -219,6 +221,7 @@ def deer_iteration(
     tol: float = 1e-4, # XG addition
     clip: bool=False, # XG addition
     picard: bool=False, # XG addition
+    k: float=0.0
 ) -> jnp.ndarray:
     """
     Perform the iteration from the DEER framework.
@@ -326,6 +329,7 @@ def deer_iteration(
             full_trace=full_trace,
             tol=tol,
             clip=clip,
+            k=k,
         )
         return (yt, samp_iters)
 
@@ -350,6 +354,7 @@ def deer_iteration_eval(
     tol: float = 1e-4, # XG addition
     clip: bool=False, # XG addition
     picard: bool=False, # XG addition
+    k: float=0.0
 ) -> jnp.ndarray:
     # compute the iteration
     if picard:
@@ -390,6 +395,7 @@ def deer_iteration_eval(
             qmem_efficient=qmem_efficient,
             tol=tol,
             clip=clip,
+            k=k,
         )
     else:
         yt, gts, rhs, func, samp_iters = deer_iteration_helper(
@@ -407,7 +413,10 @@ def deer_iteration_eval(
             clip_ytnext=clip_ytnext,
             tol=tol,
             clip=clip,
+            k=k,
         )
+    if picard or (quasi and k > 0):
+        gts = None
     # the function must be wrapped as a partial to be used in the reverse mode
     resid = (
         yt,
@@ -439,6 +448,7 @@ def deer_iteration_bwd(
     tol: float, # XG addition
     clip: bool, # XG addition
     picard: bool, # XG addition
+    k: float,
     # the meaningful arguments
     resid: Any,
     grad_yt: jnp.ndarray,
@@ -494,6 +504,7 @@ def deer_iteration_helper(
     full_trace: bool = False,  # XG addition
     tol: float = 1e-4, # XG addition
     clip: bool=False, # XG addition
+    k: float=0.0
 ) -> Tuple[jnp.ndarray, Optional[List[jnp.ndarray]], Callable]:
     """
     Notes:
@@ -516,7 +527,7 @@ def deer_iteration_helper(
         # yt: (nsamples, ny)
         ytparams = shifter_func(yt, shifter_func_params)
         gts = [
-            -gt for gt in jacfunc(ytparams, xinput, params)
+            -(1-k) * gt for gt in jacfunc(ytparams, xinput, params)
         ]  # [p_num] + (nsamples, ny, ny), meaning its a list of length p num
         # rhs: (nsamples, ny)
         rhs = func2(ytparams, xinput, params)  # (carry, input, params)
@@ -540,7 +551,7 @@ def deer_iteration_helper(
         # yt: (nsamples, ny)
         ytparams = shifter_func(yt, shifter_func_params)
         gts = [
-            -gt for gt in jacfunc(ytparams, xinput, params)
+            -(1-k) * gt for gt in jacfunc(ytparams, xinput, params)
         ]  # [p_num] + (nsamples, ny, ny)
         # rhs: (nsamples, ny)
         rhs = func2(ytparams, xinput, params)  # (carry, input, params)
@@ -761,6 +772,7 @@ def diagonal_deer_iteration_helper(
     tol: float = 1e-4, # XG addition
     clip: bool=False, # XG addition
     picard: bool=False, # XG addition
+    k: float=0.0
 ) -> Tuple[jnp.ndarray, Optional[List[jnp.ndarray]], Callable]:
     # obtain the functions to compute the jacobians and the function
     jacfunc = jax.vmap(
@@ -782,7 +794,7 @@ def diagonal_deer_iteration_helper(
         # XG change to be more memory efficient
         if qmem_efficient:
             gts = [
-                -jax.vmap(gru_diagonal_derivative, in_axes=(0, 0, None))(
+                -(1-k) * jax.vmap(gru_diagonal_derivative, in_axes=(0, 0, None))(
                     ytparams[0], xinput, params
                 )
             ]
@@ -792,7 +804,7 @@ def diagonal_deer_iteration_helper(
             # let's give up on passing clip for now, and just always do it
             # if clip:
             gts = [
-                jnp.clip(-jax.vmap(jnp.diag)(gt), a_min=-1.0, a_max=1.0)
+                jnp.clip(-(1-k) * jax.vmap(jnp.diag)(gt), a_min=-1.0, a_max=1.0)
                 for gt in jacfunc(
                     ytparams, xinput, params
                 )  # adjusted to deal with scalars
@@ -834,7 +846,7 @@ def diagonal_deer_iteration_helper(
         else:
             # if clip:
             gts = [
-                jnp.clip(-jax.vmap(jnp.diag)(gt), a_min=-1.0, a_max=1.0)
+                jnp.clip(-(1-k) * jax.vmap(jnp.diag)(gt), a_min=-1.0, a_max=1.0)
                 for gt in jacfunc(
                     ytparams, xinput, params
                 )  # adjusted to deal with scalars
