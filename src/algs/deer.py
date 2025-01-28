@@ -9,6 +9,7 @@ Modifications for benchmarking and quasi-DEER by Xavier Gonzalez (2024).
 Todo:
 * get the code to use an arbitrary diagonal derivative which is a property of the cell
 * I think one of your shapes is off for the full scan, you should put some breakpoints in 
+* you should definitely be able to get ELK proper in this codebase and see what training with ELK looks like...
 """
 
 from typing import Callable, Any, Tuple, List, Optional
@@ -114,6 +115,7 @@ def seq1d(
             qmem_efficient=qmem_efficient,
             tol=tol,
             clip=clip,
+            k=k,
         )
         else:
             yt, _, _, _, samp_iters = deer_iteration_helper(
@@ -310,6 +312,7 @@ def deer_iteration(
             qmem_efficient=qmem_efficient,
             tol=tol,
             clip=clip,
+            k=k,
         )
         return (yt, samp_iters)
     else:

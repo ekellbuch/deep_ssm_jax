@@ -20,7 +20,7 @@ wandb_project: "nonlinear_ssm"
 
 early_stopping: true  # early stopping
 early_stopping_metric: "val_loss"  # early stopping metric
-early_stopping_patience: 5  # early stopping patience
+early_stopping_patience: 10  # early stopping patience
 early_stopping_min_delta: 0.0001  # early stopping min delta
 
 
@@ -31,7 +31,7 @@ batch_size: 256  # batch size, need to run with batch_size 64 for DEER
 fast_dev_run: False
 explore: False # if explore is True, don't use hold out test set
 
-date: "2025-01-27"
+date: "2025-01-28"
 
 hydra:
   run:
