@@ -334,11 +334,11 @@ def train_model(model, optimizer, opt_state,
             x = jnp.swapaxes(x, -1, -2)  # (batch_size, input_size, seq_len)
             loss_value, model, opt_state, fp_iters = train_step(model, optimizer, opt_state, x, y)  # Pass model explicitly
             # checkpoint slow converging version
-            if jnp.mean(fp_iters) > 700:
-                print(f"[*] Slow convergence detected at epoch {epoch + 1}")
-                checkpoint_filepath = f"{dirname}/slow_convergence_seed_{seed}.pkl"
-                save_checkpoint(model, opt_state, filepath=checkpoint_filepath)
-                wandb.save(checkpoint_filepath)
+            # if jnp.mean(fp_iters) > 700:
+            #     print(f"[*] Slow convergence detected at epoch {epoch + 1}")
+            #     checkpoint_filepath = f"{dirname}/slow_convergence_seed_{seed}.pkl"
+            #     save_checkpoint(model, opt_state, filepath=checkpoint_filepath)
+            #     wandb.save(checkpoint_filepath)
             if wandb.run is not None:
                 metrics = {"train/train_batch_loss": loss_value,
                            "train/train_fixed_point_iters": jnp.mean(fp_iters)}
